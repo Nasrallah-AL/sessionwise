@@ -7,6 +7,19 @@ breaking changes to flags or JSON output; they are called out below.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-19
+
+### Added
+
+- New recommendation kinds `irrelevant-context`, `irrelevant-skill`, `irrelevant-tool`: `analyze` now turns relevance judgments into recommendations. Any session and category with 3+ sampled items and a 30%+ irrelevant rate gets a `review`-risk recommendation, citing the repeated names and counts.
+
+### Changed
+
+- Dashboard relevance table is now grouped by session and category instead of one flat row per judgment, with identical repeated calls deduplicated into a count (`Read x3`, not three rows). Each session links to its row in the Sessions table.
+- The top relevance cards' "Flagged" examples are deduplicated the same way, instead of listing the same name up to 3 times.
+- `scan`/`analyze` no longer print `$0.0000 recorded` for adapters that don't track cost (Claude Code never does). They print "cost not tracked for this adapter" instead, so a genuine $0 and "not measured" are never confused.
+- The empty-recommendations message is now "No recommendations. Nothing in this window crossed a detector's threshold." instead of the ambiguous "No recommendations yet."
+
 ## [0.1.3] - 2026-09-19
 
 ### Added

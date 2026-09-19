@@ -32,7 +32,7 @@ SessionWise | session intelligence
 
 Showing the 5 most recently active sessions (of 89 total). Use --all or --days N to see more.
 
-5 sessions · 250 events · $0.0000 recorded
+5 sessions · 250 events · cost not tracked for this adapter
 25,038,828 input · 124,544 output · 5 errors
 
 2 recommendations
@@ -155,6 +155,8 @@ sessionwise analyze --recent 5 --limit 30
 
 If Jev isn't connected, the adapter isn't `claude-code`, or the Jev call itself fails (bad key, network, rate limit), `analyze` says so and still produces the local analysis and report. It never loses the local analysis over the opt-in part.
 
+When relevance judging succeeds, `analyze` also turns high irrelevant rates into recommendations: any session and category (context, skill, or tool) with at least 3 sampled items and a 30%+ irrelevant rate gets its own `review`-risk recommendation, with the repeated names and counts as evidence. A session that gets `"Read"` judged irrelevant three times shows one recommendation citing `Read (3)`, not silence.
+
 To run relevance on its own, without the local analysis:
 
 ```bash
@@ -162,7 +164,7 @@ sessionwise relevance --session <session-id> --limit 30
 sessionwise dashboard
 ```
 
-The report shows each category independently:
+The report shows each category independently, grouped by session with identical repeated calls deduplicated into a count (`Read x3`, not three rows):
 
 | Category | Relevant | Irrelevant | Uncertain |
 | --- | --- | --- | --- |

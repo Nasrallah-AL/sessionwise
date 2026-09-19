@@ -16,7 +16,14 @@ export { describeJevConnection } from "./jev-connection.js";
 export type { JevConnection } from "./jev-connection.js";
 export { createControlledOptimizer } from "./optimizer.js";
 export { calculateSessionMetrics, modelTier } from "./metrics.js";
-export { extractClaudeSemanticItems, judgeRelevance, readClaudeSemanticItems } from "./relevance.js";
+export {
+  deriveRelevanceRecommendations,
+  extractClaudeSemanticItems,
+  groupRelevanceBySession,
+  judgeRelevance,
+  readClaudeSemanticItems,
+} from "./relevance.js";
+export type { SessionRelevanceFlag, SessionRelevanceGroup } from "./relevance.js";
 export { filterToRecentSessions } from "./recent.js";
 export { filterEventsByTime, parsePositiveInt, resolveTimeWindow } from "./time.js";
 export type { TimeWindow, TimeWindowOptions } from "./time.js";

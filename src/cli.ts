@@ -12,7 +12,7 @@ import { paint, shouldColor, type SingleStyle } from "./color.js";
 import { latestDecision, readDecisions, recordDecision } from "./decisions.js";
 import { generateDashboard } from "./dashboard.js";
 import { describeJevConnection } from "./jev-connection.js";
-import { judgeRelevance, readClaudeSemanticItems } from "./relevance.js";
+import { deriveRelevanceRecommendations, judgeRelevance, readClaudeSemanticItems } from "./relevance.js";
 import { filterToRecentSessions } from "./recent.js";
 import { filterEventsByTime, parsePositiveInt, resolveTimeWindow } from "./time.js";
 import type { Analysis, Recommendation, RelevanceReport, SessionEvent, SessionMetrics } from "./types.js";
@@ -158,7 +158,7 @@ function help(): void {
 
 function printRecommendations(recommendations: Recommendation[]): void {
   if (!recommendations.length) {
-    console.log("No recommendations yet.");
+    console.log("No recommendations. Nothing in this window crossed a detector's threshold.");
     return;
   }
   for (const item of recommendations) {
@@ -176,7 +176,10 @@ function printScan(analysis: Analysis, scope: { totalSessions: number; recentCap
   if (scope.recentCap !== undefined && scope.totalSessions > scope.recentCap) {
     console.log(`Showing the ${scope.recentCap} most recently active sessions (of ${scope.totalSessions} total). Use --all or --days N to see more.\n`);
   }
-  console.log(`${analysis.sessions.length} sessions · ${analysis.totals.eventCount} events · $${analysis.totals.costUsd.toFixed(4)} recorded`);
+  const hasCost = analysis.events.some((event) => (event.costUsd ?? 0) > 0);
+  console.log(hasCost
+    ? `${analysis.sessions.length} sessions · ${analysis.totals.eventCount} events · $${analysis.totals.costUsd.toFixed(4)} recorded`
+    : `${analysis.sessions.length} sessions · ${analysis.totals.eventCount} events · cost not tracked for this adapter`);
   console.log(`${analysis.totals.inputTokens.toLocaleString()} input · ${analysis.totals.outputTokens.toLocaleString()} output · ${analysis.totals.errorCount} errors`);
   console.log(`\n${analysis.recommendations.length} recommendations`);
   printRecommendations(analysis.recommendations.slice(0, 5));
@@ -310,19 +313,25 @@ async function run(): Promise<void> {
       }
     }
 
+    const enrichedAnalysis: Analysis = relevance
+      ? { ...analysis, recommendations: [...analysis.recommendations, ...deriveRelevanceRecommendations(relevance)] }
+      : analysis;
+
     if (json) {
-      console.log(JSON.stringify({ analysis, relevance, relevanceSkippedReason }, null, 2));
+      console.log(JSON.stringify({ analysis: enrichedAnalysis, relevance, relevanceSkippedReason }, null, 2));
       return;
     }
-    printScan(analysis, { totalSessions, recentCap });
+    printScan(enrichedAnalysis, { totalSessions, recentCap });
     if (relevance) {
+      const derivedCount = enrichedAnalysis.recommendations.length - analysis.recommendations.length;
       console.log(`\nRelevance: ${relevance.sampled}/${relevance.available} candidates sampled, written to ${relevancePath}`);
+      if (derivedCount > 0) console.log(`${derivedCount} additional recommendation${derivedCount === 1 ? "" : "s"} from relevance findings above.`);
     } else {
       console.log(`\nRelevance skipped: ${relevanceSkippedReason}`);
     }
     if (!args.includes("--no-report")) {
       const output = resolve(option("--out") ?? "sessionwise-report.html");
-      await writeFile(output, generateDashboard(analysis, relevance ?? (await loadRelevance())), "utf8");
+      await writeFile(output, generateDashboard(enrichedAnalysis, relevance ?? (await loadRelevance())), "utf8");
       console.log(`\nFull report written to ${output} (--no-report to skip)`);
     }
     return;

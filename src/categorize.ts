@@ -4,7 +4,7 @@ export type RecommendationCategory = "model" | "context" | "tools" | "cost";
 
 export function recommendationCategory(recommendation: Recommendation): RecommendationCategory {
   if (recommendation.kind === "model-fit" || recommendation.kind === "reasoning-overhead") return "model";
-  if (recommendation.kind === "cache-opportunity" || recommendation.kind === "context-growth") return "context";
+  if (recommendation.kind === "cache-opportunity" || recommendation.kind === "context-growth" || recommendation.kind === "irrelevant-context") return "context";
   if (recommendation.kind === "cost-concentration") return "cost";
   return "tools";
 }

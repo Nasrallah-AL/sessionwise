@@ -5,6 +5,7 @@ import {
 } from "jevctl";
 import { findClaudeCodeTranscriptFiles } from "./claude-code.js";
 import type {
+  Recommendation,
   RelevanceJudgment,
   RelevanceKind,
   RelevanceLabel,
@@ -240,4 +241,126 @@ export async function judgeRelevance(
     },
     judgments,
   };
+}
+
+export interface SessionRelevanceFlag {
+  kind: RelevanceKind;
+  name: string;
+  label: RelevanceLabel;
+  count: number;
+}
+
+export interface SessionRelevanceGroup {
+  sessionId: string;
+  counts: Record<RelevanceKind, { relevant: number; irrelevant: number; uncertain: number }>;
+  /** Non-relevant items, deduplicated by (kind, name, label), sorted by count descending. */
+  flagged: SessionRelevanceFlag[];
+}
+
+function emptyRelevanceCounts(): Record<RelevanceKind, { relevant: number; irrelevant: number; uncertain: number }> {
+  return {
+    context: { relevant: 0, irrelevant: 0, uncertain: 0 },
+    skill: { relevant: 0, irrelevant: 0, uncertain: 0 },
+    tool: { relevant: 0, irrelevant: 0, uncertain: 0 },
+  };
+}
+
+/**
+ * Groups judgments by session for display: per-category counts, plus
+ * non-relevant items deduplicated by (kind, name, label) with counts, instead
+ * of one row per identical call. A session that ran "Read" ten times and got
+ * judged "irrelevant" each time shows as one flagged row: "Read x10".
+ */
+export function groupRelevanceBySession(judgments: RelevanceJudgment[]): SessionRelevanceGroup[] {
+  const groups = new Map<string, SessionRelevanceGroup>();
+  const flaggedKeys = new Map<string, SessionRelevanceFlag & { sessionId: string }>();
+
+  for (const judgment of judgments) {
+    let group = groups.get(judgment.sessionId);
+    if (!group) {
+      group = { sessionId: judgment.sessionId, counts: emptyRelevanceCounts(), flagged: [] };
+      groups.set(judgment.sessionId, group);
+    }
+    group.counts[judgment.kind][judgment.label]++;
+
+    if (judgment.label !== "relevant") {
+      const key = `${judgment.sessionId}:${judgment.kind}:${judgment.name}:${judgment.label}`;
+      const existing = flaggedKeys.get(key);
+      if (existing) existing.count++;
+      else flaggedKeys.set(key, { sessionId: judgment.sessionId, kind: judgment.kind, name: judgment.name, label: judgment.label, count: 1 });
+    }
+  }
+
+  for (const flag of flaggedKeys.values()) {
+    groups.get(flag.sessionId)?.flagged.push({ kind: flag.kind, name: flag.name, label: flag.label, count: flag.count });
+  }
+  for (const group of groups.values()) {
+    group.flagged.sort((a, b) => b.count - a.count);
+  }
+  return [...groups.values()];
+}
+
+const IRRELEVANT_MIN_SAMPLE = 3;
+const IRRELEVANT_MIN_RATE = 0.3;
+
+const IRRELEVANT_TITLE: Record<RelevanceKind, string> = {
+  tool: "Tool calls judged irrelevant to the request",
+  context: "Context judged irrelevant to the request",
+  skill: "Skill invocations judged irrelevant to the request",
+};
+
+const IRRELEVANT_SUGGESTION: Record<RelevanceKind, string> = {
+  tool: "Review whether these tool calls are needed for the request; consider narrowing the agent's plan before it runs them.",
+  context: "This context is frequently not used by the response; consider trimming it before the next turn.",
+  skill: "This skill is often invoked when it does not fit the request; check its trigger conditions.",
+};
+
+/**
+ * Turns relevance judgments with a high irrelevant rate into recommendations,
+ * one per session and category. Requires at least 3 sampled items in that
+ * session/category and a 30%+ irrelevant rate, so a single unlucky judgment
+ * never becomes a recommendation.
+ */
+export function deriveRelevanceRecommendations(report: RelevanceReport): Recommendation[] {
+  const groups = new Map<string, { sessionId: string; kind: RelevanceKind; total: number; irrelevant: number; names: Map<string, number> }>();
+  for (const judgment of report.judgments) {
+    const key = `${judgment.sessionId}:${judgment.kind}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { sessionId: judgment.sessionId, kind: judgment.kind, total: 0, irrelevant: 0, names: new Map() };
+      groups.set(key, group);
+    }
+    group.total++;
+    if (judgment.label === "irrelevant") {
+      group.irrelevant++;
+      group.names.set(judgment.name, (group.names.get(judgment.name) ?? 0) + 1);
+    }
+  }
+
+  const recommendations: Recommendation[] = [];
+  for (const group of groups.values()) {
+    if (group.total < IRRELEVANT_MIN_SAMPLE) continue;
+    const rate = group.irrelevant / group.total;
+    if (rate < IRRELEVANT_MIN_RATE) continue;
+    const examples = [...group.names.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([name, count]) => `${name} (${count})`)
+      .join(", ");
+    recommendations.push({
+      id: `irrelevant-${group.kind}:${group.sessionId}`,
+      kind: `irrelevant-${group.kind}`,
+      sessionId: group.sessionId,
+      title: IRRELEVANT_TITLE[group.kind],
+      suggestion: IRRELEVANT_SUGGESTION[group.kind],
+      confidence: "medium",
+      risk: "review",
+      evidence: [
+        { label: "irrelevant", value: `${group.irrelevant}/${group.total}` },
+        { label: "share", value: `${Math.round(rate * 100)}%` },
+        { label: "examples", value: examples || "n/a" },
+      ],
+    });
+  }
+  return recommendations;
 }

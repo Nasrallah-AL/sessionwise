@@ -5,12 +5,22 @@
   "sampled": 12,
   "available": 12,
   "metrics": {
-    "context": { "total": 4, "relevant": 3, "irrelevant": 1, "uncertain": 0, "relevantRate": 0.75, "irrelevantRate": 0.25 },
-    "skill": { "total": 4, "relevant": 3, "irrelevant": 0, "uncertain": 1, "relevantRate": 0.75, "irrelevantRate": 0 },
-    "tool": { "total": 4, "relevant": 2, "irrelevant": 1, "uncertain": 1, "relevantRate": 0.5, "irrelevantRate": 0.25 }
+    "context": { "total": 4, "relevant": 1, "irrelevant": 3, "uncertain": 0, "relevantRate": 0.25, "irrelevantRate": 0.75 },
+    "skill": { "total": 1, "relevant": 1, "irrelevant": 0, "uncertain": 0, "relevantRate": 1, "irrelevantRate": 0 },
+    "tool": { "total": 7, "relevant": 2, "irrelevant": 4, "uncertain": 1, "relevantRate": 0.29, "irrelevantRate": 0.57 }
   },
   "judgments": [
-    { "id": "context:example-1", "sessionId": "debug-checkout", "turnId": "turn-1", "kind": "context", "name": "Read result", "label": "irrelevant", "confidence": 0.88, "probabilities": { "relevant": 0.08, "irrelevant": 0.88, "uncertain": 0.04 } },
-    { "id": "tool:example-2", "sessionId": "debug-checkout", "turnId": "turn-1", "kind": "tool", "name": "WebSearch", "label": "irrelevant", "confidence": 0.91, "probabilities": { "relevant": 0.04, "irrelevant": 0.91, "uncertain": 0.05 } }
+    { "id": "tool:1", "sessionId": "debug-checkout", "turnId": "t1", "kind": "tool", "name": "Read", "label": "irrelevant", "confidence": 0.9, "probabilities": { "relevant": 0.05, "irrelevant": 0.9, "uncertain": 0.05 } },
+    { "id": "tool:2", "sessionId": "debug-checkout", "turnId": "t2", "kind": "tool", "name": "Read", "label": "irrelevant", "confidence": 0.9, "probabilities": { "relevant": 0.05, "irrelevant": 0.9, "uncertain": 0.05 } },
+    { "id": "tool:3", "sessionId": "debug-checkout", "turnId": "t3", "kind": "tool", "name": "Read", "label": "irrelevant", "confidence": 0.9, "probabilities": { "relevant": 0.05, "irrelevant": 0.9, "uncertain": 0.05 } },
+    { "id": "tool:4", "sessionId": "debug-checkout", "turnId": "t4", "kind": "tool", "name": "Bash", "label": "relevant", "confidence": 0.9, "probabilities": { "relevant": 0.9, "irrelevant": 0.05, "uncertain": 0.05 } },
+    { "id": "context:1", "sessionId": "debug-checkout", "turnId": "t1", "kind": "context", "name": "Read result", "label": "irrelevant", "confidence": 0.9, "probabilities": { "relevant": 0.05, "irrelevant": 0.9, "uncertain": 0.05 } },
+    { "id": "context:2", "sessionId": "debug-checkout", "turnId": "t2", "kind": "context", "name": "Read result", "label": "irrelevant", "confidence": 0.9, "probabilities": { "relevant": 0.05, "irrelevant": 0.9, "uncertain": 0.05 } },
+    { "id": "context:3", "sessionId": "debug-checkout", "turnId": "t3", "kind": "context", "name": "Read result", "label": "irrelevant", "confidence": 0.9, "probabilities": { "relevant": 0.05, "irrelevant": 0.9, "uncertain": 0.05 } },
+    { "id": "context:4", "sessionId": "debug-checkout", "turnId": "t4", "kind": "context", "name": "Bash result", "label": "relevant", "confidence": 0.9, "probabilities": { "relevant": 0.9, "irrelevant": 0.05, "uncertain": 0.05 } },
+    { "id": "tool:5", "sessionId": "summarize-notes", "turnId": "t5", "kind": "tool", "name": "WebSearch", "label": "relevant", "confidence": 0.9, "probabilities": { "relevant": 0.9, "irrelevant": 0.05, "uncertain": 0.05 } },
+    { "id": "tool:6", "sessionId": "summarize-notes", "turnId": "t6", "kind": "tool", "name": "WebSearch", "label": "uncertain", "confidence": 0.4, "probabilities": { "relevant": 0.3, "irrelevant": 0.3, "uncertain": 0.4 } },
+    { "id": "tool:7", "sessionId": "summarize-notes", "turnId": "t7", "kind": "tool", "name": "Fetch", "label": "irrelevant", "confidence": 0.85, "probabilities": { "relevant": 0.1, "irrelevant": 0.85, "uncertain": 0.05 } },
+    { "id": "skill:1", "sessionId": "summarize-notes", "turnId": "t5", "kind": "skill", "name": "unit-testing", "label": "relevant", "confidence": 0.9, "probabilities": { "relevant": 0.9, "irrelevant": 0.05, "uncertain": 0.05 } }
   ]
 }

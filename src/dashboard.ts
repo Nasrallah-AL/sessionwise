@@ -1,5 +1,6 @@
 import { recommendationCategory } from "./categorize.js";
 import { calculateSessionMetrics } from "./metrics.js";
+import { groupRelevanceBySession } from "./relevance.js";
 import type { Analysis, Recommendation, RelevanceKind, RelevanceReport } from "./types.js";
 
 const escapeHtml = (value: string) => value
@@ -54,7 +55,15 @@ export function generateDashboard(analysis: Analysis, relevance?: RelevanceRepor
     ? relevanceKinds.map(({ kind, label }) => {
         const metric = relevance.metrics[kind];
         const rate = metric.relevantRate === null ? "n/a" : `${Math.round(metric.relevantRate * 100)}%`;
-        const flagged = relevance.judgments.filter((judgment) => judgment.kind === kind && judgment.label === "irrelevant").slice(0, 3).map((judgment) => judgment.name);
+        const irrelevantCounts = new Map<string, number>();
+        for (const judgment of relevance.judgments) {
+          if (judgment.kind !== kind || judgment.label !== "irrelevant") continue;
+          irrelevantCounts.set(judgment.name, (irrelevantCounts.get(judgment.name) ?? 0) + 1);
+        }
+        const flagged = [...irrelevantCounts.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([name, count]) => (count > 1 ? `${name} x${count}` : name));
         const searchable = `${label} ${flagged.join(" ")}`.toLowerCase();
         return `<article class="relevance-card searchable" data-search="${escapeHtml(searchable)}">
           <span>${escapeHtml(label)} relevance</span><b>${rate}</b>
@@ -64,10 +73,29 @@ export function generateDashboard(analysis: Analysis, relevance?: RelevanceRepor
         </article>`;
       }).join("")
     : `<div class="empty"><strong>Relevance has not been analyzed.</strong><span>Run <code>sessionwise relevance --session &lt;id&gt;</code>.</span></div>`;
-  const relevanceRows = relevance?.judgments.map((judgment) => {
-    const searchable = `${judgment.kind} ${judgment.name} ${judgment.label} ${judgment.sessionId}`.toLowerCase();
-    return `<tr class="searchable" data-search="${escapeHtml(searchable)}"><td>${escapeHtml(judgment.kind)}</td><td><strong>${escapeHtml(judgment.name)}</strong><small>${escapeHtml(judgment.sessionId)}</small></td><td><span class="judgment ${judgment.label}">${judgment.label}</span></td></tr>`;
-  }).join("") ?? "";
+  // One row per session and category, not one row per identical call: a
+  // session that read the same file ten times shows as "Read x10", not ten rows.
+  const relevanceGroups = relevance ? groupRelevanceBySession(relevance.judgments) : [];
+  const RELEVANCE_KINDS: RelevanceKind[] = ["context", "skill", "tool"];
+  const relevanceRows = relevanceGroups.flatMap((group) => RELEVANCE_KINDS.flatMap((kind) => {
+    const counts = group.counts[kind];
+    const total = counts.relevant + counts.irrelevant + counts.uncertain;
+    if (!total) return [];
+    const flaggedForKind = group.flagged
+      .filter((flag) => flag.kind === kind)
+      .slice(0, 4)
+      .map((flag) => `${flag.name} x${flag.count}`)
+      .join(", ");
+    const searchable = `${group.sessionId} ${kind} ${flaggedForKind}`.toLowerCase();
+    return [`<tr class="searchable" data-search="${escapeHtml(searchable)}">
+      <td><a href="#session-${escapeHtml(group.sessionId)}">${escapeHtml(group.sessionId)}</a></td>
+      <td>${escapeHtml(kind)}</td>
+      <td>${counts.relevant}</td>
+      <td>${counts.irrelevant}</td>
+      <td>${counts.uncertain}</td>
+      <td>${flaggedForKind ? escapeHtml(flaggedForKind) : "-"}</td>
+    </tr>`];
+  })).join("");
 
   return `<!doctype html>
 <html lang="en">
@@ -107,7 +135,7 @@ export function generateDashboard(analysis: Analysis, relevance?: RelevanceRepor
   <section class="section" data-section="relevance">
     <div class="section-head"><h2>Relevance</h2>${relevance ? `<p>${relevance.sampled} of ${relevance.available} candidates sampled</p>` : ""}</div>
     <div class="relevance-grid">${relevanceCards}</div>
-    ${relevanceRows ? `<div class="table-wrap detail-table"><table><thead><tr><th>Category</th><th>Item</th><th>Result</th></tr></thead><tbody>${relevanceRows}</tbody></table></div>` : ""}
+    ${relevanceRows ? `<div class="table-wrap detail-table"><table><thead><tr><th>Session</th><th>Category</th><th>Relevant</th><th>Irrelevant</th><th>Uncertain</th><th>Flagged items</th></tr></thead><tbody>${relevanceRows}</tbody></table></div>` : ""}
   </section>
   <section class="section" data-section="recommendations">
     <div class="section-head"><h2>Recommendations</h2><p>${analysis.recommendations.length} findings</p></div>

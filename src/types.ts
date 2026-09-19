@@ -76,7 +76,10 @@ export type RecommendationKind =
   | "error-loop"
   | "model-fit"
   | "reasoning-overhead"
-  | "repeated-tool-call";
+  | "repeated-tool-call"
+  | "irrelevant-context"
+  | "irrelevant-skill"
+  | "irrelevant-tool";
 
 export type RecommendationRisk = "safe" | "review" | "verify";
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AskFn } from "jevctl";
-import { extractClaudeSemanticItems, judgeRelevance } from "../src/relevance.js";
+import { deriveRelevanceRecommendations, extractClaudeSemanticItems, groupRelevanceBySession, judgeRelevance } from "../src/relevance.js";
+import type { RelevanceJudgment, RelevanceReport } from "../src/types.js";
 
 const source = [
   {
@@ -85,5 +86,121 @@ describe("semantic relevance", () => {
     await judgeRelevance(ask, items, { limit: 3 });
 
     expect(seen).toEqual(["context", "skill", "tool"]);
+  });
+});
+
+const judgment = (overrides: Partial<RelevanceJudgment>): RelevanceJudgment => ({
+  id: "id",
+  sessionId: "session-1",
+  turnId: "turn-1",
+  kind: "tool",
+  name: "Read",
+  label: "relevant",
+  confidence: 0.9,
+  probabilities: { relevant: 0.9, irrelevant: 0.05, uncertain: 0.05 },
+  ...overrides,
+});
+
+describe("groupRelevanceBySession", () => {
+  it("counts per session and category", () => {
+    const groups = groupRelevanceBySession([
+      judgment({ sessionId: "a", kind: "tool", label: "relevant" }),
+      judgment({ sessionId: "a", kind: "tool", label: "irrelevant" }),
+      judgment({ sessionId: "b", kind: "context", label: "uncertain" }),
+    ]);
+
+    const a = groups.find((g) => g.sessionId === "a")!;
+    const b = groups.find((g) => g.sessionId === "b")!;
+    expect(a.counts.tool).toEqual({ relevant: 1, irrelevant: 1, uncertain: 0 });
+    expect(b.counts.context).toEqual({ relevant: 0, irrelevant: 0, uncertain: 1 });
+  });
+
+  it("deduplicates identical non-relevant calls into one flagged entry with a count", () => {
+    const groups = groupRelevanceBySession([
+      judgment({ sessionId: "a", kind: "tool", name: "Read", label: "irrelevant" }),
+      judgment({ sessionId: "a", kind: "tool", name: "Read", label: "irrelevant" }),
+      judgment({ sessionId: "a", kind: "tool", name: "Read", label: "irrelevant" }),
+      judgment({ sessionId: "a", kind: "tool", name: "Bash", label: "relevant" }),
+    ]);
+
+    const a = groups.find((g) => g.sessionId === "a")!;
+    expect(a.flagged).toEqual([{ kind: "tool", name: "Read", label: "irrelevant", count: 3 }]);
+  });
+
+  it("sorts flagged entries by count, most frequent first", () => {
+    const groups = groupRelevanceBySession([
+      judgment({ sessionId: "a", kind: "tool", name: "Read", label: "irrelevant" }),
+      judgment({ sessionId: "a", kind: "tool", name: "Bash", label: "irrelevant" }),
+      judgment({ sessionId: "a", kind: "tool", name: "Bash", label: "irrelevant" }),
+    ]);
+
+    const a = groups.find((g) => g.sessionId === "a")!;
+    expect(a.flagged.map((f) => f.name)).toEqual(["Bash", "Read"]);
+  });
+});
+
+function report(judgments: RelevanceJudgment[]): RelevanceReport {
+  return {
+    generatedAt: "2026-09-19T00:00:00Z",
+    provider: "typesafe",
+    model: "jev-test",
+    sampled: judgments.length,
+    available: judgments.length,
+    metrics: {
+      context: { total: 0, relevant: 0, irrelevant: 0, uncertain: 0, relevantRate: null, irrelevantRate: null },
+      skill: { total: 0, relevant: 0, irrelevant: 0, uncertain: 0, relevantRate: null, irrelevantRate: null },
+      tool: { total: 0, relevant: 0, irrelevant: 0, uncertain: 0, relevantRate: null, irrelevantRate: null },
+    },
+    judgments,
+  };
+}
+
+describe("deriveRelevanceRecommendations", () => {
+  it("recommends when a session/category is mostly irrelevant, with at least 3 samples", () => {
+    const recommendations = deriveRelevanceRecommendations(report([
+      judgment({ sessionId: "a", kind: "tool", name: "Read", label: "irrelevant" }),
+      judgment({ sessionId: "a", kind: "tool", name: "Read", label: "irrelevant" }),
+      judgment({ sessionId: "a", kind: "tool", name: "Bash", label: "relevant" }),
+    ]));
+
+    expect(recommendations).toHaveLength(1);
+    expect(recommendations[0]).toMatchObject({
+      kind: "irrelevant-tool",
+      sessionId: "a",
+      risk: "review",
+      confidence: "medium",
+    });
+    expect(recommendations[0]!.evidence.find((e) => e.label === "irrelevant")?.value).toBe("2/3");
+  });
+
+  it("does not recommend below the 3-sample minimum, even at 100% irrelevant", () => {
+    const recommendations = deriveRelevanceRecommendations(report([
+      judgment({ sessionId: "a", kind: "tool", label: "irrelevant" }),
+      judgment({ sessionId: "a", kind: "tool", label: "irrelevant" }),
+    ]));
+    expect(recommendations).toEqual([]);
+  });
+
+  it("does not recommend when the irrelevant rate is below 30%", () => {
+    const recommendations = deriveRelevanceRecommendations(report([
+      judgment({ sessionId: "a", kind: "tool", label: "relevant" }),
+      judgment({ sessionId: "a", kind: "tool", label: "relevant" }),
+      judgment({ sessionId: "a", kind: "tool", label: "relevant" }),
+      judgment({ sessionId: "a", kind: "tool", label: "irrelevant" }),
+    ]));
+    expect(recommendations).toEqual([]);
+  });
+
+  it("keeps sessions and categories separate", () => {
+    const recommendations = deriveRelevanceRecommendations(report([
+      judgment({ sessionId: "a", kind: "tool", label: "irrelevant" }),
+      judgment({ sessionId: "a", kind: "tool", label: "irrelevant" }),
+      judgment({ sessionId: "a", kind: "tool", label: "irrelevant" }),
+      judgment({ sessionId: "b", kind: "context", label: "relevant" }),
+      judgment({ sessionId: "b", kind: "context", label: "relevant" }),
+      judgment({ sessionId: "b", kind: "context", label: "relevant" }),
+    ]));
+    expect(recommendations).toHaveLength(1);
+    expect(recommendations[0]!.sessionId).toBe("a");
   });
 });
