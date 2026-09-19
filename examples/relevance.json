@@ -1,0 +1,16 @@
+{
+  "generatedAt": "2026-09-19T18:00:00.000Z",
+  "provider": "typesafe",
+  "model": "jev-latest",
+  "sampled": 12,
+  "available": 12,
+  "metrics": {
+    "context": { "total": 4, "relevant": 3, "irrelevant": 1, "uncertain": 0, "relevantRate": 0.75, "irrelevantRate": 0.25 },
+    "skill": { "total": 4, "relevant": 3, "irrelevant": 0, "uncertain": 1, "relevantRate": 0.75, "irrelevantRate": 0 },
+    "tool": { "total": 4, "relevant": 2, "irrelevant": 1, "uncertain": 1, "relevantRate": 0.5, "irrelevantRate": 0.25 }
+  },
+  "judgments": [
+    { "id": "context:example-1", "sessionId": "debug-checkout", "turnId": "turn-1", "kind": "context", "name": "Read result", "label": "irrelevant", "confidence": 0.88, "probabilities": { "relevant": 0.08, "irrelevant": 0.88, "uncertain": 0.04 } },
+    { "id": "tool:example-2", "sessionId": "debug-checkout", "turnId": "turn-1", "kind": "tool", "name": "WebSearch", "label": "irrelevant", "confidence": 0.91, "probabilities": { "relevant": 0.04, "irrelevant": 0.91, "uncertain": 0.05 } }
+  ]
+}

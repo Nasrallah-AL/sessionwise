@@ -1,0 +1,524 @@
+#!/usr/bin/env node
+import { watch } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, resolve } from "node:path";
+import { createAsk, resolveConfig, withStoredCredentials } from "jevctl";
+import { claudeCodeAdapter, eventFileAdapter, readFromAdapters, type SessionAdapter } from "./adapters.js";
+import { analyzeSessions } from "./analyze.js";
+import { buildModelBreakdown } from "./breakdown.js";
+import { recommendationCategory } from "./categorize.js";
+import { latestDecision, readDecisions, recordDecision } from "./decisions.js";
+import { generateDashboard } from "./dashboard.js";
+import { describeJevConnection } from "./jev-connection.js";
+import { judgeRelevance, readClaudeSemanticItems } from "./relevance.js";
+import { filterEventsByTime, resolveTimeWindow } from "./time.js";
+import type { Analysis, Recommendation, RelevanceReport, SessionMetrics } from "./types.js";
+import { verifyRecommendation } from "./verify.js";
+
+const args = process.argv.slice(2);
+const command = args[0] ?? "help";
+
+function option(name: string): string | undefined {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : undefined;
+}
+
+const fileOption = option("--file");
+const adapterId = option("--adapter") ?? option("--source") ?? (fileOption ? "file" : "claude-code");
+const inputPath = resolve(fileOption ?? `${homedir()}/.sessionlens/events.jsonl`);
+const claudeRoot = resolve(option("--claude-dir") ?? `${homedir()}/.claude/projects`);
+const relevancePath = resolve(option("--relevance-file") ?? `${homedir()}/.sessionlens/relevance.json`);
+const decisionsPath = resolve(option("--decisions-file") ?? `${homedir()}/.sessionlens/decisions.json`);
+const json = args.includes("--json");
+const force = args.includes("--force");
+
+let cachedTimeWindow: ReturnType<typeof resolveTimeWindow> | undefined;
+/** Resolved lazily so a bad --since/--until is caught by run().catch, not thrown at import time. */
+function getTimeWindow(): ReturnType<typeof resolveTimeWindow> {
+  cachedTimeWindow ??= resolveTimeWindow({ days: option("--days"), since: option("--since"), until: option("--until") });
+  return cachedTimeWindow;
+}
+
+function help(): void {
+  console.log(`
+SessionLens - analyze, understand, and optimize AI sessions
+
+  Observe
+  sessionlens scan                 summarize sessions and findings
+  sessionlens sessions             list recorded sessions
+  sessionlens inspect <id>         inspect one session
+  sessionlens why                  where the tokens and calls actually go, by model
+  sessionlens metrics              model, cache, context, and health metrics
+  sessionlens model-fit            sessions ranked by model-fit score
+  sessionlens cache                sessions ranked by cache hit rate
+  sessionlens context              sessions ranked by context efficiency
+  sessionlens health               sessions ranked by health score
+
+  Explain
+  sessionlens recommend            evidence-backed recommendations
+  sessionlens waste                just the opportunities, grouped by category
+  sessionlens show <id>            the calls behind one recommendation
+  sessionlens relevance            judge context, skill, and tool relevance with Jev
+
+  Decide
+  sessionlens verify <id>          sanity-check a recommendation's evidence with Jev
+  sessionlens apply <id>           record that a recommendation was acted on
+
+  Report
+  sessionlens live                 watch a JSONL ledger for new findings
+  sessionlens dashboard            write a self-contained HTML dashboard
+  sessionlens adapters             list available data adapters
+  sessionlens privacy              what is read, sent, and stored
+  sessionlens guide                which model tier fits which kind of turn
+  sessionlens jev                  check the Jev connection used by verify/relevance
+
+  --adapter claude-code|file       data adapter; defaults to Claude Code
+  --claude-dir <path>              Claude Code projects directory
+  --file <path>                    normalized JSON or JSONL event source
+  --relevance-file <path>          semantic relevance report path
+  --decisions-file <path>          decisions ledger path
+  --model <name>                   why: limit to one model
+  --session <id>                   relevance: analyze one session
+  --limit <n>                      relevance: maximum candidates (default 50)
+  --out <path>                     dashboard output path
+  --force                          apply: proceed without a passing verify
+  --days <n>                       only calls from the last n days
+  --since <date>                   only calls at or after this date
+  --until <date>                   only calls at or before this date
+  --json                           machine-readable output
+`);
+}
+
+function printRecommendations(recommendations: Recommendation[]): void {
+  if (!recommendations.length) {
+    console.log("No recommendations yet.");
+    return;
+  }
+  for (const item of recommendations) {
+    console.log(`\n${item.risk.toUpperCase()}  ${item.title}`);
+    console.log(`      ${item.suggestion}`);
+    console.log(`      ${item.evidence.map((evidence) => `${evidence.label}: ${evidence.value}`).join(" | ")}`);
+    console.log(`      ${item.id}`);
+  }
+}
+
+function printScan(analysis: Analysis): void {
+  console.log("\nSessionLens | session intelligence\n");
+  const window = getTimeWindow();
+  if (window.label) console.log(`Window: ${window.label}\n`);
+  console.log(`${analysis.sessions.length} sessions · ${analysis.totals.eventCount} events · $${analysis.totals.costUsd.toFixed(4)} recorded`);
+  console.log(`${analysis.totals.inputTokens.toLocaleString()} input · ${analysis.totals.outputTokens.toLocaleString()} output · ${analysis.totals.errorCount} errors`);
+  console.log(`\n${analysis.recommendations.length} recommendations`);
+  printRecommendations(analysis.recommendations.slice(0, 5));
+}
+
+async function load(): Promise<Analysis> {
+  let adapter: SessionAdapter;
+  if (adapterId === "claude" || adapterId === "claude-code") adapter = claudeCodeAdapter({ root: claudeRoot });
+  else if (adapterId === "file") adapter = eventFileAdapter({ path: inputPath });
+  else throw new Error(`Unsupported adapter: ${adapterId}`);
+  const events = filterEventsByTime(await readFromAdapters([adapter]), getTimeWindow());
+  return analyzeSessions(events);
+}
+
+async function loadRelevance(): Promise<RelevanceReport | undefined> {
+  try {
+    return JSON.parse(await readFile(relevancePath, "utf8")) as RelevanceReport;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+/** Fails fast, before any Jev call, with the same pointer `sessionlens jev` prints. */
+function requireJevConnection(env: NodeJS.ProcessEnv): void {
+  const connection = describeJevConnection(env);
+  if (!connection.connected) throw new Error(connection.detail);
+}
+
+function metricTable(sessions: Analysis["sessions"], pick: (metrics: SessionMetrics) => number | null, label: string, ascending: boolean): void {
+  const ranked = sessions
+    .map((session) => ({ id: session.id, model: session.models.join(", ") || "unknown", value: pick(session.metrics) }))
+    .filter((row): row is { id: string; model: string; value: number } => row.value !== null)
+    .sort((a, b) => (ascending ? a.value - b.value : b.value - a.value));
+  if (json) {
+    console.log(JSON.stringify(ranked, null, 2));
+    return;
+  }
+  if (!ranked.length) {
+    console.log(`No sessions with a ${label} value yet.`);
+    return;
+  }
+  console.table(ranked.map((row) => ({ id: row.id, model: row.model, [label]: row.value })));
+}
+
+async function run(): Promise<void> {
+  if (command === "help" || command === "--help" || command === "-h") return help();
+
+  if (command === "scan") {
+    const analysis = await load();
+    return json ? console.log(JSON.stringify(analysis, null, 2)) : printScan(analysis);
+  }
+
+  if (command === "sessions") {
+    const analysis = await load();
+    return json
+      ? console.log(JSON.stringify(analysis.sessions, null, 2))
+      : console.table(analysis.sessions.map(({ id, eventCount, costUsd, errorCount, models, metrics }) => ({
+          id,
+          events: eventCount,
+          cost: costUsd,
+          errors: errorCount,
+          model: models.join(", "),
+          modelFit: metrics.modelPicking.fitScore ?? "n/a",
+          cacheHit: metrics.cache.hitRate === null ? "n/a" : `${Math.round(metrics.cache.hitRate * 100)}%`,
+          context: metrics.context.efficiencyScore ?? "n/a",
+          health: metrics.health.score,
+        })));
+  }
+
+  if (command === "inspect") {
+    const id = args[1];
+    if (!id) throw new Error("Usage: sessionlens inspect <id>");
+    const analysis = await load();
+    const session = analysis.sessions.find((item) => item.id === id);
+    if (!session) throw new Error(`Session not found: ${id}`);
+    const result = { session, events: analysis.events.filter((event) => event.sessionId === id), recommendations: analysis.recommendations.filter((item) => item.sessionId === id) };
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command === "why") {
+    const analysis = await load();
+    const modelFilter = option("--model");
+    if (modelFilter) {
+      const sessions = analysis.sessions.filter((session) => session.models.includes(modelFilter));
+      if (!sessions.length) throw new Error(`No sessions found for model: ${modelFilter}`);
+      return json
+        ? console.log(JSON.stringify(sessions, null, 2))
+        : console.table(sessions.map((session) => ({
+            id: session.id,
+            events: session.eventCount,
+            tokens: session.inputTokens + session.outputTokens,
+            cacheHit: session.metrics.cache.hitRate === null ? "n/a" : `${Math.round(session.metrics.cache.hitRate * 100)}%`,
+            fit: session.metrics.modelPicking.fitScore ?? "n/a",
+            health: session.metrics.health.score,
+          })));
+    }
+    const breakdown = buildModelBreakdown(analysis.sessions);
+    if (json) {
+      console.log(JSON.stringify(breakdown, null, 2));
+      return;
+    }
+    console.log("\nWhere the calls go, by model. Add --model <name> to drill into its sessions.\n");
+    console.table(breakdown.map((row) => ({
+      model: row.model,
+      sessions: row.sessionCount,
+      calls: row.eventCount,
+      tokens: row.tokens,
+      cacheHit: row.cacheHitRate === null ? "n/a" : `${Math.round(row.cacheHitRate * 100)}%`,
+      fit: row.fitScore ?? "n/a",
+      health: row.healthScore,
+    })));
+    return;
+  }
+
+  if (command === "recommend") {
+    const recommendations = (await load()).recommendations;
+    return json ? console.log(JSON.stringify(recommendations, null, 2)) : printRecommendations(recommendations);
+  }
+
+  if (command === "waste") {
+    const recommendations = (await load()).recommendations;
+    const order = { safe: 0, review: 1, verify: 2 } as const;
+    const sorted = [...recommendations].sort((a, b) => order[a.risk] - order[b.risk]);
+    if (json) {
+      console.log(JSON.stringify(sorted, null, 2));
+      return;
+    }
+    if (!sorted.length) {
+      console.log("No opportunities found.");
+      return;
+    }
+    console.log("\nOpportunities, safest first\n");
+    for (const item of sorted) {
+      console.log(`[${item.risk}] ${recommendationCategory(item)} · ${item.title}`);
+      console.log(`  ${item.evidence.map((evidence) => `${evidence.label}: ${evidence.value}`).join(" | ")}`);
+      console.log(`  ${item.id}`);
+    }
+    return;
+  }
+
+  if (command === "show") {
+    const id = args[1];
+    if (!id) throw new Error("Usage: sessionlens show <recommendation-id>");
+    const analysis = await load();
+    const recommendation = analysis.recommendations.find((item) => item.id === id);
+    if (!recommendation) throw new Error(`Recommendation not found: ${id}`);
+    const events = recommendation.sessionId
+      ? analysis.events.filter((event) => event.sessionId === recommendation.sessionId)
+      : [];
+    const rows = events.map((event) => ({
+      id: event.id,
+      timestamp: event.timestamp,
+      model: event.model ?? "unknown",
+      inputTokens: event.inputTokens,
+      outputTokens: event.outputTokens,
+      tool: event.toolName ?? "",
+      error: Boolean(event.error),
+    }));
+    if (json) {
+      console.log(JSON.stringify({ recommendation, calls: rows }, null, 2));
+      return;
+    }
+    console.log(`\n${recommendation.title}\n${recommendation.suggestion}\n`);
+    console.log(recommendation.evidence.map((item) => `${item.label}: ${item.value}`).join(" | "));
+    console.log(`\n${rows.length} calls in this session:\n`);
+    console.table(rows);
+    return;
+  }
+
+  if (command === "verify") {
+    const id = args[1];
+    if (!id) throw new Error("Usage: sessionlens verify <recommendation-id>");
+    const analysis = await load();
+    const recommendation = analysis.recommendations.find((item) => item.id === id);
+    if (!recommendation) throw new Error(`Recommendation not found: ${id}`);
+    const env = withStoredCredentials(process.env);
+    requireJevConnection(env);
+    const config = resolveConfig({ env });
+    const ask = createAsk({ provider: config.provider, model: config.model, timeoutMs: config.timeoutMs, env });
+    const result = await verifyRecommendation(ask, recommendation);
+    await recordDecision(decisionsPath, {
+      recommendationId: id,
+      status: result.passed ? "verified" : "skipped",
+      note: result.rationale,
+      recordedAt: new Date().toISOString(),
+    });
+    if (json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    console.log(`\n${result.passed ? "PASS" : "FAIL"}  ${recommendation.title}`);
+    console.log(result.rationale);
+    console.log(result.passed ? `\nsessionlens apply ${id}` : "\nThis recommendation was not marked verified.");
+    return;
+  }
+
+  if (command === "apply") {
+    const id = args[1];
+    if (!id) throw new Error("Usage: sessionlens apply <recommendation-id>");
+    const analysis = await load();
+    const recommendation = analysis.recommendations.find((item) => item.id === id);
+    if (!recommendation) throw new Error(`Recommendation not found: ${id}`);
+    const decisions = await readDecisions(decisionsPath);
+    const verified = Boolean(latestDecision(decisions, id, "verified"));
+    if (recommendation.risk === "verify" && !verified && !force) {
+      throw new Error(`This recommendation needs verification first. Run: sessionlens verify ${id}`);
+    }
+    if (recommendation.risk === "review" && !verified && !force) {
+      throw new Error("This recommendation should be reviewed first. Re-run with --force to record it anyway.");
+    }
+    await recordDecision(decisionsPath, {
+      recommendationId: id,
+      status: "applied",
+      note: recommendation.suggestion,
+      recordedAt: new Date().toISOString(),
+    });
+    if (json) {
+      console.log(JSON.stringify({ recommendationId: id, status: "applied" }, null, 2));
+      return;
+    }
+    console.log(`\nRecorded as applied: ${recommendation.title}`);
+    console.log(`Action to take: ${recommendation.suggestion}`);
+    console.log(`\nSessionLens does not change any provider or agent config. This only records your decision at ${decisionsPath}.`);
+    return;
+  }
+
+  if (command === "adapters") {
+    const adapters = [
+      claudeCodeAdapter({ root: claudeRoot }),
+      eventFileAdapter({ path: inputPath }),
+    ].map(({ id, label, description }) => ({ id, label, description }));
+    if (json) console.log(JSON.stringify(adapters, null, 2));
+    else console.table(adapters);
+    return;
+  }
+
+  if (command === "metrics") {
+    const sessions = (await load()).sessions.map(({ id, models, metrics }) => ({ id, models, ...metrics }));
+    if (json) console.log(JSON.stringify(sessions, null, 2));
+    else console.table(sessions.map(({ id, models, modelPicking, cache, context, health }) => ({
+      id,
+      model: models.join(", "),
+      modelFit: modelPicking.fitScore ?? "n/a",
+      lowerTierCalls: `${modelPicking.oversizedCalls}/${modelPicking.evaluatedCalls}`,
+      cacheHit: cache.hitRate === null ? "n/a" : `${Math.round(cache.hitRate * 100)}%`,
+      contextEfficiency: context.efficiencyScore ?? "n/a",
+      health: health.score,
+    })));
+    return;
+  }
+
+  if (command === "model-fit") {
+    const analysis = await load();
+    return metricTable(analysis.sessions, (metrics) => metrics.modelPicking.fitScore, "modelFit", true);
+  }
+
+  if (command === "cache") {
+    const analysis = await load();
+    return metricTable(analysis.sessions, (metrics) => metrics.cache.hitRate === null ? null : Math.round(metrics.cache.hitRate * 100), "cacheHitPercent", true);
+  }
+
+  if (command === "context") {
+    const analysis = await load();
+    return metricTable(analysis.sessions, (metrics) => metrics.context.efficiencyScore, "contextEfficiency", true);
+  }
+
+  if (command === "health") {
+    const analysis = await load();
+    return metricTable(analysis.sessions, (metrics) => metrics.health.score, "health", true);
+  }
+
+  if (command === "relevance") {
+    if (adapterId !== "claude" && adapterId !== "claude-code") {
+      throw new Error("Semantic extraction currently requires the claude-code adapter.");
+    }
+    const env = withStoredCredentials(process.env);
+    requireJevConnection(env);
+    const requestedSession = option("--session");
+    const rawLimit = option("--limit");
+    const limit = rawLimit === undefined ? 50 : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1) throw new Error("--limit must be a positive integer.");
+    const available = await readClaudeSemanticItems(claudeRoot);
+    const items = requestedSession ? available.filter((item) => item.sessionId === requestedSession) : available;
+    if (!items.length) throw new Error(requestedSession ? `No semantic candidates found for session ${requestedSession}.` : "No semantic candidates found.");
+    const config = resolveConfig({ env });
+    const ask = createAsk({ provider: config.provider, model: config.model, timeoutMs: config.timeoutMs, env });
+    const report = await judgeRelevance(ask, items, { limit });
+    await mkdir(dirname(relevancePath), { recursive: true });
+    await writeFile(relevancePath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+    if (json) console.log(JSON.stringify(report, null, 2));
+    else {
+      console.log(`\nSemantic relevance | ${report.sampled}/${report.available} candidates sampled\n`);
+      console.table(Object.entries(report.metrics).map(([kind, metric]) => ({
+        kind,
+        relevant: metric.relevant,
+        irrelevant: metric.irrelevant,
+        uncertain: metric.uncertain,
+        relevantRate: metric.relevantRate === null ? "n/a" : `${Math.round(metric.relevantRate * 100)}%`,
+      })));
+      console.log(`Report written to ${relevancePath}`);
+    }
+    return;
+  }
+
+  if (command === "dashboard") {
+    const output = resolve(option("--out") ?? "sessionlens-report.html");
+    await writeFile(output, generateDashboard(await load(), await loadRelevance()), "utf8");
+    console.log(`Dashboard written to ${output}`);
+    return;
+  }
+
+  if (command === "privacy") {
+    console.log(`
+SessionLens | privacy
+
+Local by default. Nothing is read, sent, or stored unless a command below says so.
+
+  scan, sessions, inspect, why, metrics,
+  model-fit, cache, context, health,
+  waste, recommend, show, dashboard, live   Read transcript metadata only:
+                                            model, token counts, cache tokens,
+                                            timestamps, tool names, error hashes.
+                                            Nothing leaves this machine.
+
+  relevance                                Opt-in. Sends a sampled current
+                                            request plus one candidate's
+                                            context, skill, or tool detail to
+                                            your configured Jev provider.
+                                            Stores only labels and
+                                            probabilities at ${relevancePath}.
+
+  verify                                   Sends one recommendation's evidence
+                                            numbers (not raw prompts or tool
+                                            output) to Jev, to sanity-check the
+                                            finding. Records pass or fail at
+                                            ${decisionsPath}.
+
+  apply                                    Local only. Records your decision
+                                            at ${decisionsPath}. Never edits a
+                                            provider key, config file, or
+                                            running session.
+
+Claude Code transcripts are read from ${claudeRoot} unless --claude-dir points
+elsewhere. Tool inputs and outputs are hashed for repeat detection; the hash
+cannot be reversed into the original content.
+
+Run \`sessionlens jev\` to check whether verify/relevance can reach Jev right now.
+`);
+    return;
+  }
+
+  if (command === "jev") {
+    const connection = describeJevConnection(withStoredCredentials(process.env));
+    if (json) {
+      console.log(JSON.stringify(connection, null, 2));
+      return;
+    }
+    console.log(`\n${connection.connected ? "Connected" : "Not connected"}\n`);
+    console.log(connection.detail);
+    return;
+  }
+
+  if (command === "guide") {
+    console.log(`
+SessionLens | model-fit guide
+
+How a turn is classified, from its observed shape alone (no content read):
+
+  fast       reasoning < 300 tokens, 0 tool calls, input < 20k, output < 1k
+  balanced   reasoning >= 300, or 1+ tool calls, or input >= 20k, or output >= 1k
+  advanced   reasoning >= 2,000, or 4+ tool calls, or output >= 4,000
+
+A model-fit finding fires when a session's actual model tier sits above what
+its turns needed on average. It is inferred, not measured, and is always
+marked "verify" risk until you run:
+
+  sessionlens verify <recommendation-id>
+`);
+    return;
+  }
+
+  if (command === "live") {
+    if (adapterId === "file") {
+      await mkdir(dirname(inputPath), { recursive: true });
+      await writeFile(inputPath, "", { flag: "a" });
+    }
+    const seen = new Set<string>();
+    const report = async () => {
+      const recommendations = (await load()).recommendations.filter((item) => !seen.has(item.id));
+      for (const item of recommendations) seen.add(item.id);
+      if (json) recommendations.forEach((item) => console.log(JSON.stringify(item)));
+      else printRecommendations(recommendations);
+    };
+    await report();
+    const isClaude = adapterId === "claude" || adapterId === "claude-code";
+    const watchedPath = isClaude ? claudeRoot : inputPath;
+    console.log(json ? JSON.stringify({ status: "watching", adapter: adapterId, path: watchedPath }) : `\nWatching ${watchedPath}`);
+    let timer: NodeJS.Timeout | undefined;
+    watch(watchedPath, { recursive: isClaude }, () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void report(), 100);
+    });
+    return;
+  }
+
+  throw new Error(`Unknown command: ${command}`);
+}
+
+run().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+});
