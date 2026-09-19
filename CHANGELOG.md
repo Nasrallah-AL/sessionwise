@@ -7,6 +7,8 @@ breaking changes to flags or JSON output; they are called out below.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-19
+
 ### Added
 
 - `--hours <n>`: a time window flag alongside `--days`, `--since`, and `--until`.
