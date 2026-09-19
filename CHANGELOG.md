@@ -7,6 +7,8 @@ breaking changes to flags or JSON output; they are called out below.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-19
+
 ### Changed
 
 - `scan` now defaults to the 5 most recently active sessions instead of your entire Claude Code history, and always prints which sessions it's showing (`Showing the 5 most recently active sessions (of N total)`). Use `--all`, `--days`, `--since`, `--until`, `--session`, or an explicit `--recent` to see more; any of these disables the default cap.
