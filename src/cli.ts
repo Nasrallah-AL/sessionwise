@@ -8,6 +8,7 @@ import { claudeCodeAdapter, eventFileAdapter, readFromAdapters, type SessionAdap
 import { analyzeSessions } from "./analyze.js";
 import { buildModelBreakdown } from "./breakdown.js";
 import { recommendationCategory } from "./categorize.js";
+import { paint, shouldColor, type SingleStyle } from "./color.js";
 import { latestDecision, readDecisions, recordDecision } from "./decisions.js";
 import { generateDashboard } from "./dashboard.js";
 import { describeJevConnection } from "./jev-connection.js";
@@ -43,62 +44,116 @@ function getTimeWindow(): ReturnType<typeof resolveTimeWindow> {
   return cachedTimeWindow;
 }
 
+interface HelpEntry {
+  command: string;
+  description: string;
+}
+
+interface HelpSection {
+  title: string;
+  color: SingleStyle;
+  entries: HelpEntry[];
+}
+
+const HELP_SECTIONS: HelpSection[] = [
+  {
+    title: "Observe",
+    color: "cyan",
+    entries: [
+      { command: "sessionwise scan", description: "quick look: 5 most recent sessions, writes a report" },
+      { command: "sessionwise analyze", description: "scan, plus opt-in Jev relevance, writes a report" },
+      { command: "sessionwise sessions", description: "list recorded sessions" },
+      { command: "sessionwise inspect <id>", description: "inspect one session" },
+      { command: "sessionwise why", description: "where the tokens and calls actually go, by model" },
+      { command: "sessionwise metrics", description: "model, cache, context, and health metrics" },
+      { command: "sessionwise model-fit", description: "sessions ranked by model-fit score" },
+      { command: "sessionwise cache", description: "sessions ranked by cache hit rate" },
+      { command: "sessionwise context", description: "sessions ranked by context efficiency" },
+      { command: "sessionwise health", description: "sessions ranked by health score" },
+    ],
+  },
+  {
+    title: "Explain",
+    color: "magenta",
+    entries: [
+      { command: "sessionwise recommend", description: "evidence-backed recommendations" },
+      { command: "sessionwise waste", description: "just the opportunities, grouped by category" },
+      { command: "sessionwise show <id>", description: "the calls behind one recommendation" },
+      { command: "sessionwise relevance", description: "judge context, skill, and tool relevance with Jev" },
+    ],
+  },
+  {
+    title: "Decide",
+    color: "yellow",
+    entries: [
+      { command: "sessionwise verify <id>", description: "sanity-check a recommendation's evidence with Jev" },
+      { command: "sessionwise apply <id>", description: "record that a recommendation was acted on" },
+    ],
+  },
+  {
+    title: "Report",
+    color: "green",
+    entries: [
+      { command: "sessionwise live", description: "watch a JSONL ledger for new findings" },
+      { command: "sessionwise dashboard", description: "write a self-contained HTML dashboard" },
+      { command: "sessionwise adapters", description: "list available data adapters" },
+      { command: "sessionwise privacy", description: "what is read, sent, and stored" },
+      { command: "sessionwise guide", description: "which model tier fits which kind of turn" },
+      { command: "sessionwise jev", description: "check the Jev connection used by verify/relevance/analyze" },
+    ],
+  },
+];
+
+const HELP_FLAGS: HelpEntry[] = [
+  { command: "--adapter claude-code|file", description: "data adapter; defaults to Claude Code" },
+  { command: "--claude-dir <path>", description: "Claude Code projects directory" },
+  { command: "--file <path>", description: "normalized JSON or JSONL event source" },
+  { command: "--relevance-file <path>", description: "semantic relevance report path" },
+  { command: "--decisions-file <path>", description: "decisions ledger path" },
+  { command: "--model <name>", description: "why: limit to one model" },
+  { command: "--session <id>", description: "scope to one session (any command)" },
+  { command: "--limit <n>", description: "analyze/relevance: maximum relevance candidates (default 50)" },
+  { command: "--out <path>", description: "scan/analyze/dashboard output path" },
+  { command: "--force", description: "apply: proceed without a passing verify" },
+  { command: "--days <n>", description: "only calls from the last n days" },
+  { command: "--hours <n>", description: "only calls from the last n hours" },
+  { command: "--since <date>", description: "only calls at or after this date" },
+  { command: "--until <date>", description: "only calls at or before this date" },
+  { command: "--recent <n>", description: "only the n most recently active sessions" },
+  { command: "--all", description: "scan/analyze: full history, not just the 5 most recent" },
+  { command: "--no-report", description: "scan/analyze: skip writing the HTML report" },
+  { command: "--version, -v", description: "print the installed version" },
+  { command: "--no-update-check", description: "skip the once-a-day check for a newer version" },
+  { command: "--json", description: "machine-readable output" },
+];
+
+const HELP_COLUMN = 34;
+
 function help(): void {
-  console.log(`
-SessionWise v${getOwnVersion()} - analyze, understand, and optimize AI sessions
-(also installed as \`sw\` and \`wise\` -- same command, shorter to type)
+  const color = shouldColor();
+  const lines: string[] = [""];
 
-  Observe
-  sessionwise scan                 quick look: 5 most recent sessions, writes a report
-  sessionwise analyze              scan, plus opt-in Jev relevance, writes a report
-  sessionwise sessions             list recorded sessions
-  sessionwise inspect <id>         inspect one session
-  sessionwise why                  where the tokens and calls actually go, by model
-  sessionwise metrics              model, cache, context, and health metrics
-  sessionwise model-fit            sessions ranked by model-fit score
-  sessionwise cache                sessions ranked by cache hit rate
-  sessionwise context              sessions ranked by context efficiency
-  sessionwise health               sessions ranked by health score
+  lines.push(
+    `${paint(color, "bold", `SessionWise v${getOwnVersion()}`)} ${paint(color, "dim", "- analyze, understand, and optimize AI sessions")}`,
+  );
+  lines.push(paint(color, "dim", "(also installed as `sw` and `wise`, same command, shorter to type)"));
 
-  Explain
-  sessionwise recommend            evidence-backed recommendations
-  sessionwise waste                just the opportunities, grouped by category
-  sessionwise show <id>            the calls behind one recommendation
-  sessionwise relevance            judge context, skill, and tool relevance with Jev
+  for (const section of HELP_SECTIONS) {
+    lines.push("");
+    lines.push(paint(color, ["bold", section.color], `  ${section.title}`));
+    for (const entry of section.entries) {
+      lines.push(`  ${paint(color, "bold", entry.command.padEnd(HELP_COLUMN))}${paint(color, "dim", entry.description)}`);
+    }
+  }
 
-  Decide
-  sessionwise verify <id>          sanity-check a recommendation's evidence with Jev
-  sessionwise apply <id>           record that a recommendation was acted on
+  lines.push("");
+  lines.push(paint(color, ["bold", "white"], "  Flags"));
+  for (const entry of HELP_FLAGS) {
+    lines.push(`  ${paint(color, "cyan", entry.command.padEnd(HELP_COLUMN))}${paint(color, "dim", entry.description)}`);
+  }
+  lines.push("");
 
-  Report
-  sessionwise live                 watch a JSONL ledger for new findings
-  sessionwise dashboard            write a self-contained HTML dashboard
-  sessionwise adapters             list available data adapters
-  sessionwise privacy              what is read, sent, and stored
-  sessionwise guide                which model tier fits which kind of turn
-  sessionwise jev                  check the Jev connection used by verify/relevance
-
-  --adapter claude-code|file       data adapter; defaults to Claude Code
-  --claude-dir <path>              Claude Code projects directory
-  --file <path>                    normalized JSON or JSONL event source
-  --relevance-file <path>          semantic relevance report path
-  --decisions-file <path>          decisions ledger path
-  --model <name>                   why: limit to one model
-  --session <id>                   scope to one session (analyze/relevance/any command)
-  --limit <n>                      analyze/relevance: maximum relevance candidates (default 50)
-  --out <path>                     scan/analyze/dashboard output path
-  --force                          apply: proceed without a passing verify
-  --days <n>                       only calls from the last n days
-  --hours <n>                      only calls from the last n hours
-  --since <date>                   only calls at or after this date
-  --until <date>                   only calls at or before this date
-  --recent <n>                     only the n most recently active sessions
-  --all                            scan/analyze: full history, not just the 5 most recent
-  --no-report                      scan/analyze: skip writing the HTML report
-  --version, -v                    print the installed version
-  --no-update-check                skip the once-a-day check for a newer version
-  --json                           machine-readable output
-`);
+  console.log(lines.join("\n"));
 }
 
 function printRecommendations(recommendations: Recommendation[]): void {
@@ -243,9 +298,15 @@ async function run(): Promise<void> {
         const env = withStoredCredentials(process.env);
         const config = resolveConfig({ env });
         const ask = createAsk({ provider: config.provider, model: config.model, timeoutMs: config.timeoutMs, env });
-        relevance = await judgeRelevance(ask, items, { limit });
-        await mkdir(dirname(relevancePath), { recursive: true });
-        await writeFile(relevancePath, `${JSON.stringify(relevance, null, 2)}\n`, "utf8");
+        try {
+          relevance = await judgeRelevance(ask, items, { limit });
+          await mkdir(dirname(relevancePath), { recursive: true });
+          await writeFile(relevancePath, `${JSON.stringify(relevance, null, 2)}\n`, "utf8");
+        } catch (error) {
+          // A Jev call failing (bad key, network, rate limit) must never cost you the
+          // local analysis you already have. Report it and keep going.
+          relevanceSkippedReason = `Jev call failed: ${error instanceof Error ? error.message : String(error)}`;
+        }
       }
     }
 

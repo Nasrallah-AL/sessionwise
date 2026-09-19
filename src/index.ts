@@ -5,6 +5,8 @@ export { buildModelBreakdown, primaryModel } from "./breakdown.js";
 export type { ModelBreakdownRow } from "./breakdown.js";
 export { recommendationCategory } from "./categorize.js";
 export type { RecommendationCategory } from "./categorize.js";
+export { paint, shouldColor } from "./color.js";
+export type { SingleStyle, Style } from "./color.js";
 export { parseClaudeCodeTranscript, readClaudeCodeSessions } from "./claude-code.js";
 export { latestDecision, readDecisions, recordDecision } from "./decisions.js";
 export type { Decision, DecisionStatus } from "./decisions.js";

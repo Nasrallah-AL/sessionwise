@@ -116,7 +116,7 @@ sessionwise privacy
 sessionwise jev
 ```
 
-Every command accepts `--json` for machine-readable output. `sessionwise --help` lists every flag.
+Every command accepts `--json` for machine-readable output. `sessionwise --help` lists every flag, colored and grouped by category in a real terminal (plain text when piped, or with `NO_COLOR` set).
 
 ## Scope: time, sessions, and history
 
@@ -153,7 +153,7 @@ Dates accept anything `Date.parse` understands (`2026-09-01`, `2026-09-01T00:00:
 sessionwise analyze --recent 5 --limit 30
 ```
 
-If Jev isn't connected, or the current adapter isn't `claude-code`, `analyze` says so and still produces the local analysis and report. It never fails the whole command over the opt-in part.
+If Jev isn't connected, the adapter isn't `claude-code`, or the Jev call itself fails (bad key, network, rate limit), `analyze` says so and still produces the local analysis and report. It never loses the local analysis over the opt-in part.
 
 To run relevance on its own, without the local analysis:
 
@@ -184,6 +184,8 @@ sessionwise apply model-fit:debug-checkout     # requires a passing verify first
 ## Connecting to Jev
 
 Three commands ever call Jev: `verify`, `relevance`, and `analyze` (for its relevance step only). Every other command runs entirely offline.
+
+SessionWise depends on **`jevctl`** (the same package that ships the `jev` CLI) as a normal npm dependency, and calls it as a library, not as a subprocess. That means it reuses `jev`'s own credential resolution: an environment variable, or whatever key you already stored with `jev auth login`. There is nothing separate to configure.
 
 ```bash
 sessionwise jev

@@ -7,6 +7,16 @@ breaking changes to flags or JSON output; they are called out below.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-19
+
+### Added
+
+- `--help` is now colored and categorized: each command group (Observe, Explain, Decide, Report) gets its own color, command names are bold, descriptions are dim. Honors `NO_COLOR`/`FORCE_COLOR` and falls back to plain text when not a TTY, same convention as jevctl.
+
+### Fixed
+
+- `analyze`: a Jev call failing (invalid or expired API key, network error, rate limit) no longer discards the local analysis that already succeeded. It now reports "Relevance skipped: Jev call failed: ..." and still prints the summary and writes the report, instead of aborting the whole command with a bare error.
+
 ## [0.1.2] - 2026-09-19
 
 ### Added
