@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterEventsByTime, resolveTimeWindow } from "../src/time.js";
+import { filterEventsByTime, parsePositiveInt, resolveTimeWindow } from "../src/time.js";
 import type { SessionEvent } from "../src/types.js";
 
 const event = (id: string, timestamp: string): SessionEvent => ({
@@ -73,5 +73,17 @@ describe("filterEventsByTime", () => {
   it("drops events with an unparsable timestamp once a window is set", () => {
     const events = [event("bad", "not-a-timestamp")];
     expect(filterEventsByTime(events, resolveTimeWindow({ days: "1" }))).toEqual([]);
+  });
+});
+
+describe("parsePositiveInt", () => {
+  it("parses a valid positive integer", () => {
+    expect(parsePositiveInt("5", "--recent")).toBe(5);
+  });
+
+  it("rejects zero, negatives, and non-numbers", () => {
+    expect(() => parsePositiveInt("0", "--recent")).toThrow("--recent must be a positive integer");
+    expect(() => parsePositiveInt("-3", "--recent")).toThrow("--recent must be a positive integer");
+    expect(() => parsePositiveInt("abc", "--recent")).toThrow("--recent must be a positive integer");
   });
 });

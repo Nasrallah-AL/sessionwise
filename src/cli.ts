@@ -12,8 +12,9 @@ import { latestDecision, readDecisions, recordDecision } from "./decisions.js";
 import { generateDashboard } from "./dashboard.js";
 import { describeJevConnection } from "./jev-connection.js";
 import { judgeRelevance, readClaudeSemanticItems } from "./relevance.js";
-import { filterEventsByTime, resolveTimeWindow } from "./time.js";
-import type { Analysis, Recommendation, RelevanceReport, SessionMetrics } from "./types.js";
+import { filterToRecentSessions } from "./recent.js";
+import { filterEventsByTime, parsePositiveInt, resolveTimeWindow } from "./time.js";
+import type { Analysis, Recommendation, RelevanceReport, SessionEvent, SessionMetrics } from "./types.js";
 import { verifyRecommendation } from "./verify.js";
 
 const args = process.argv.slice(2);
@@ -46,7 +47,7 @@ SessionWise - analyze, understand, and optimize AI sessions
 (also installed as \`sw\` and \`wise\` -- same command, shorter to type)
 
   Observe
-  sessionwise scan                 summarize sessions and findings
+  sessionwise scan                 quick look: 5 most recent sessions, writes a report
   sessionwise sessions             list recorded sessions
   sessionwise inspect <id>         inspect one session
   sessionwise why                  where the tokens and calls actually go, by model
@@ -87,6 +88,9 @@ SessionWise - analyze, understand, and optimize AI sessions
   --days <n>                       only calls from the last n days
   --since <date>                   only calls at or after this date
   --until <date>                   only calls at or before this date
+  --recent <n>                     only the n most recently active sessions
+  --all                            scan: analyze full history, not just the 5 most recent
+  --no-report                      scan: skip writing the HTML report
   --json                           machine-readable output
 `);
 }
@@ -104,23 +108,56 @@ function printRecommendations(recommendations: Recommendation[]): void {
   }
 }
 
-function printScan(analysis: Analysis): void {
+function printScan(analysis: Analysis, scope: { totalSessions: number; recentCap?: number }): void {
   console.log("\nSessionWise | session intelligence\n");
   const window = getTimeWindow();
   if (window.label) console.log(`Window: ${window.label}\n`);
+  if (scope.recentCap !== undefined && scope.totalSessions > scope.recentCap) {
+    console.log(`Showing the ${scope.recentCap} most recently active sessions (of ${scope.totalSessions} total). Use --all or --days N to see more.\n`);
+  }
   console.log(`${analysis.sessions.length} sessions · ${analysis.totals.eventCount} events · $${analysis.totals.costUsd.toFixed(4)} recorded`);
   console.log(`${analysis.totals.inputTokens.toLocaleString()} input · ${analysis.totals.outputTokens.toLocaleString()} output · ${analysis.totals.errorCount} errors`);
   console.log(`\n${analysis.recommendations.length} recommendations`);
   printRecommendations(analysis.recommendations.slice(0, 5));
 }
 
-async function load(): Promise<Analysis> {
+const DEFAULT_SCAN_RECENT = 5;
+
+/**
+ * `scan` defaults to the 5 most recently active sessions unless the caller
+ * already scoped things with --days/--since/--until/--session/--all, or gave
+ * an explicit --recent. Every other command is unrestricted by default;
+ * --recent still applies to them if passed explicitly.
+ */
+function getRecentCap(applyDefault: boolean): number | undefined {
+  const recentOption = option("--recent");
+  if (recentOption !== undefined) return parsePositiveInt(recentOption, "--recent");
+  if (!applyDefault) return undefined;
+  const explicitlyScoped = Boolean(option("--days") || option("--since") || option("--until") || option("--session")) || args.includes("--all");
+  return explicitlyScoped ? undefined : DEFAULT_SCAN_RECENT;
+}
+
+async function loadEvents(): Promise<{ events: SessionEvent[]; totalSessions: number }> {
   let adapter: SessionAdapter;
   if (adapterId === "claude" || adapterId === "claude-code") adapter = claudeCodeAdapter({ root: claudeRoot });
   else if (adapterId === "file") adapter = eventFileAdapter({ path: inputPath });
   else throw new Error(`Unsupported adapter: ${adapterId}`);
-  const events = filterEventsByTime(await readFromAdapters([adapter]), getTimeWindow());
-  return analyzeSessions(events);
+  const timeFiltered = filterEventsByTime(await readFromAdapters([adapter]), getTimeWindow());
+  const totalSessions = new Set(timeFiltered.map((event) => event.sessionId)).size;
+  return { events: timeFiltered, totalSessions };
+}
+
+async function load(): Promise<Analysis> {
+  const { events } = await loadEvents();
+  const recentCap = getRecentCap(false);
+  return analyzeSessions(recentCap === undefined ? events : filterToRecentSessions(events, recentCap));
+}
+
+async function loadForScan(): Promise<{ analysis: Analysis; totalSessions: number; recentCap?: number }> {
+  const recentCap = getRecentCap(true);
+  const { events, totalSessions } = await loadEvents();
+  const analysis = analyzeSessions(recentCap === undefined ? events : filterToRecentSessions(events, recentCap));
+  return { analysis, totalSessions, recentCap };
 }
 
 async function loadRelevance(): Promise<RelevanceReport | undefined> {
@@ -158,8 +195,18 @@ async function run(): Promise<void> {
   if (command === "help" || command === "--help" || command === "-h") return help();
 
   if (command === "scan") {
-    const analysis = await load();
-    return json ? console.log(JSON.stringify(analysis, null, 2)) : printScan(analysis);
+    const { analysis, totalSessions, recentCap } = await loadForScan();
+    if (json) {
+      console.log(JSON.stringify(analysis, null, 2));
+      return;
+    }
+    printScan(analysis, { totalSessions, recentCap });
+    if (!args.includes("--no-report")) {
+      const output = resolve(option("--out") ?? "sessionwise-report.html");
+      await writeFile(output, generateDashboard(analysis, await loadRelevance()), "utf8");
+      console.log(`\nFull report written to ${output} (--no-report to skip)`);
+    }
+    return;
   }
 
   if (command === "sessions") {

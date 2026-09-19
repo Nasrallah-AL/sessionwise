@@ -20,7 +20,7 @@ Node 20.12 or newer.
 
 | Command | Purpose |
 | --- | --- |
-| `sessionwise scan` | Summarize sessions, usage, and top findings |
+| `sessionwise scan` | Quick look: 5 most recent sessions, writes a report |
 | `sessionwise sessions` | List recorded sessions |
 | `sessionwise inspect <id>` | Show one session with its evidence |
 | `sessionwise why` | Where the tokens and calls actually go, grouped by model |
@@ -86,6 +86,29 @@ are summarized, so a session that started earlier and continued into the
 window shows only the calls that happened in it. An invalid or contradictory
 window (`--since` after `--until`, both `--days` and `--since`) fails
 immediately with a clear message, before anything is read.
+
+### scan's default scope
+
+`scan` is the "quick look" command, and defaults accordingly: unless you pass
+`--days`, `--since`, `--until`, `--session`, `--all`, or an explicit
+`--recent`, it only analyzes your **5 most recently active sessions** — not
+your entire Claude Code history. Every other command (`why`, `metrics`,
+`dashboard`, etc.) is unrestricted by default; the cap only auto-applies to
+`scan`, and only when nothing else already scoped the analysis.
+
+```bash
+sessionwise scan                 # 5 most recent sessions (default)
+sessionwise scan --recent 1       # just the most recent session
+sessionwise scan --recent 20      # the 20 most recent sessions
+sessionwise scan --all            # your entire history, no cap
+sessionwise scan --days 7         # explicit scope also disables the default cap
+```
+
+`scan` also writes `sessionwise-report.html` after printing the summary (pass
+`--no-report` to skip it, or `--out <path>` to change where it's written) —
+a persistent, browsable report is usually more useful than a long terminal
+dump, especially when `scan` is invoked from inside an agent session where
+printed output consumes the agent's own context.
 
 ### Verify, then apply
 

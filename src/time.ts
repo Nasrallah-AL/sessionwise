@@ -21,6 +21,13 @@ function parseBoundary(value: string, flag: string): number {
   return ms;
 }
 
+/** Parses a flag expecting a positive integer (e.g. --recent 5). Throws with the flag name on bad input. */
+export function parsePositiveInt(value: string, flag: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) throw new Error(`${flag} must be a positive integer, got "${value}".`);
+  return n;
+}
+
 /** Resolves --days / --since / --until into a single window. Pure; throws on bad input. */
 export function resolveTimeWindow(options: TimeWindowOptions): TimeWindow {
   const now = options.now ?? Date.now();
