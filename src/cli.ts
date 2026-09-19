@@ -50,6 +50,7 @@ SessionWise v${getOwnVersion()} - analyze, understand, and optimize AI sessions
 
   Observe
   sessionwise scan                 quick look: 5 most recent sessions, writes a report
+  sessionwise analyze              scan, plus opt-in Jev relevance, writes a report
   sessionwise sessions             list recorded sessions
   sessionwise inspect <id>         inspect one session
   sessionwise why                  where the tokens and calls actually go, by model
@@ -83,16 +84,16 @@ SessionWise v${getOwnVersion()} - analyze, understand, and optimize AI sessions
   --relevance-file <path>          semantic relevance report path
   --decisions-file <path>          decisions ledger path
   --model <name>                   why: limit to one model
-  --session <id>                   relevance: analyze one session
-  --limit <n>                      relevance: maximum candidates (default 50)
-  --out <path>                     dashboard output path
+  --session <id>                   scope to one session (analyze/relevance/any command)
+  --limit <n>                      analyze/relevance: maximum relevance candidates (default 50)
+  --out <path>                     scan/analyze/dashboard output path
   --force                          apply: proceed without a passing verify
   --days <n>                       only calls from the last n days
   --since <date>                   only calls at or after this date
   --until <date>                   only calls at or before this date
   --recent <n>                     only the n most recently active sessions
-  --all                            scan: analyze full history, not just the 5 most recent
-  --no-report                      scan: skip writing the HTML report
+  --all                            scan/analyze: full history, not just the 5 most recent
+  --no-report                      scan/analyze: skip writing the HTML report
   --version, -v                    print the installed version
   --no-update-check                skip the once-a-day check for a newer version
   --json                           machine-readable output
@@ -146,9 +147,11 @@ async function loadEvents(): Promise<{ events: SessionEvent[]; totalSessions: nu
   if (adapterId === "claude" || adapterId === "claude-code") adapter = claudeCodeAdapter({ root: claudeRoot });
   else if (adapterId === "file") adapter = eventFileAdapter({ path: inputPath });
   else throw new Error(`Unsupported adapter: ${adapterId}`);
-  const timeFiltered = filterEventsByTime(await readFromAdapters([adapter]), getTimeWindow());
-  const totalSessions = new Set(timeFiltered.map((event) => event.sessionId)).size;
-  return { events: timeFiltered, totalSessions };
+  let events = filterEventsByTime(await readFromAdapters([adapter]), getTimeWindow());
+  const sessionFilter = option("--session");
+  if (sessionFilter) events = events.filter((event) => event.sessionId === sessionFilter);
+  const totalSessions = new Set(events.map((event) => event.sessionId)).size;
+  return { events, totalSessions };
 }
 
 async function load(): Promise<Analysis> {
@@ -212,6 +215,52 @@ async function run(): Promise<void> {
     if (!args.includes("--no-report")) {
       const output = resolve(option("--out") ?? "sessionwise-report.html");
       await writeFile(output, generateDashboard(analysis, await loadRelevance()), "utf8");
+      console.log(`\nFull report written to ${output} (--no-report to skip)`);
+    }
+    return;
+  }
+
+  if (command === "analyze") {
+    const { analysis, totalSessions, recentCap } = await loadForScan();
+    const sessionIds = new Set(analysis.sessions.map((session) => session.id));
+    const connection = describeJevConnection(withStoredCredentials(process.env));
+    let relevance: RelevanceReport | undefined;
+    let relevanceSkippedReason: string | undefined;
+
+    if (adapterId !== "claude" && adapterId !== "claude-code") {
+      relevanceSkippedReason = "semantic relevance currently requires the claude-code adapter";
+    } else if (!connection.connected) {
+      relevanceSkippedReason = "not connected to Jev (run `sessionwise jev` for setup)";
+    } else {
+      const available = await readClaudeSemanticItems(claudeRoot);
+      const items = available.filter((item) => sessionIds.has(item.sessionId));
+      if (!items.length) {
+        relevanceSkippedReason = "no context, skill, or tool calls found in the analyzed sessions";
+      } else {
+        const rawLimit = option("--limit");
+        const limit = rawLimit === undefined ? 50 : parsePositiveInt(rawLimit, "--limit");
+        const env = withStoredCredentials(process.env);
+        const config = resolveConfig({ env });
+        const ask = createAsk({ provider: config.provider, model: config.model, timeoutMs: config.timeoutMs, env });
+        relevance = await judgeRelevance(ask, items, { limit });
+        await mkdir(dirname(relevancePath), { recursive: true });
+        await writeFile(relevancePath, `${JSON.stringify(relevance, null, 2)}\n`, "utf8");
+      }
+    }
+
+    if (json) {
+      console.log(JSON.stringify({ analysis, relevance, relevanceSkippedReason }, null, 2));
+      return;
+    }
+    printScan(analysis, { totalSessions, recentCap });
+    if (relevance) {
+      console.log(`\nRelevance: ${relevance.sampled}/${relevance.available} candidates sampled, written to ${relevancePath}`);
+    } else {
+      console.log(`\nRelevance skipped: ${relevanceSkippedReason}`);
+    }
+    if (!args.includes("--no-report")) {
+      const output = resolve(option("--out") ?? "sessionwise-report.html");
+      await writeFile(output, generateDashboard(analysis, relevance ?? (await loadRelevance())), "utf8");
       console.log(`\nFull report written to ${output} (--no-report to skip)`);
     }
     return;

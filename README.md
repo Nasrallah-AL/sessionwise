@@ -31,6 +31,7 @@ covers exactly what this does.
 | Command | Purpose |
 | --- | --- |
 | `sessionwise scan` | Quick look: 5 most recent sessions, writes a report |
+| `sessionwise analyze` | `scan`, plus opt-in Jev relevance for the same sessions, writes a report |
 | `sessionwise sessions` | List recorded sessions |
 | `sessionwise inspect <id>` | Show one session with its evidence |
 | `sessionwise why` | Where the tokens and calls actually go, grouped by model |
@@ -199,7 +200,21 @@ Use `sessionwise why`, `sessionwise model-fit`, `sessionwise cache`, `sessionwis
 Semantic analysis is separate and opt-in because it sends sampled content to your configured Jev provider.
 
 ```bash
-# Recommended: start with one session and a small sample.
+# One command: local metrics + relevance for the same sessions + a report.
+sessionwise analyze --recent 5 --limit 30
+```
+
+`analyze` is `scan` plus relevance: it runs the same local analysis, then scopes
+relevance judging to *exactly the sessions that analysis covered* (respecting
+`--recent`/`--days`/`--since`/`--until`/`--session`/`--all`), writes the
+relevance report, and includes it in the dashboard. If Jev isn't connected, or
+the current adapter isn't `claude-code`, it says so and still produces the
+local analysis and report — it never fails the whole command over the
+opt-in part.
+
+To run relevance judging on its own, without the local analysis:
+
+```bash
 sessionwise relevance --session <session-id> --limit 30
 sessionwise dashboard
 ```
@@ -215,12 +230,12 @@ The generated report shows each category independently:
 Privacy boundary:
 
 - Normal `scan`, `why`, `metrics`, `model-fit`, `cache`, `context`, `health`, `waste`, `recommend`, `show`, and `dashboard` commands remain metadata-only.
-- `relevance` sends only the sampled current request and candidate context, skill, or tool details to Jev.
+- `analyze` and `relevance` send only the sampled current request and candidate context, skill, or tool details to Jev.
 - `verify` sends only one recommendation's evidence numbers (never raw prompts or tool output) to Jev, to sanity-check the finding.
 - `apply` never sends anything anywhere. It only appends a line to your local decisions ledger.
 - Requests, tool arguments, and tool results exist only in memory during judging.
 - `~/.sessionwise/relevance.json` stores labels, probabilities, names, and IDs only. It never stores raw prompts, arguments, or results.
-- `--limit` defaults to 50. Use `--session` to keep analysis focused and inexpensive.
+- `--limit` defaults to 50. Use `--session`, `--recent`, or `--days` to keep analysis focused and inexpensive.
 
 Run `sessionwise privacy` at any time for this same boundary, resolved to your actual paths.
 

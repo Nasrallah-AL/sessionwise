@@ -9,6 +9,8 @@ breaking changes to flags or JSON output; they are called out below.
 
 ### Added
 
+- `analyze`: runs the same local analysis as `scan`, then scopes opt-in Jev relevance judging to exactly the sessions that analysis covered, writes the relevance report, and includes it in the dashboard. Degrades gracefully (with a stated reason) when Jev isn't connected or the adapter isn't `claude-code`, rather than failing.
+- `--session <id>` now scopes any command's local analysis, not just `relevance`'s candidate extraction.
 - `--version` / `-v`: prints the installed version.
 - Once-a-day check for a newer published version, cached locally, skipped in `--json` mode. Disable with `--no-update-check` or `SESSIONWISE_NO_UPDATE_CHECK=1`. Documented in `sessionwise privacy`.
 

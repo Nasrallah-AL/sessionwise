@@ -7,3 +7,4 @@ sessionlens-report.html
 .playwright-cli/
 .agents/
 skills-lock.json
+pnpm-lock.yaml
