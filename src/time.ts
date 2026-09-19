@@ -9,6 +9,7 @@ export interface TimeWindow {
 
 export interface TimeWindowOptions {
   days?: string;
+  hours?: string;
   since?: string;
   until?: string;
   /** Injectable for tests; defaults to the real current time. */
@@ -28,24 +29,30 @@ export function parsePositiveInt(value: string, flag: string): number {
   return n;
 }
 
-/** Resolves --days / --since / --until into a single window. Pure; throws on bad input. */
+/** Resolves --days / --hours / --since / --until into a single window. Pure; throws on bad input. */
 export function resolveTimeWindow(options: TimeWindowOptions): TimeWindow {
   const now = options.now ?? Date.now();
-  let sinceMs: number | undefined;
-  let untilMs: number | undefined;
+  const given = [
+    options.days !== undefined ? "--days" : undefined,
+    options.hours !== undefined ? "--hours" : undefined,
+    options.since !== undefined ? "--since" : undefined,
+  ].filter((flag): flag is string => flag !== undefined);
+  if (given.length > 1) throw new Error(`Use only one of ${given.join(", ")}.`);
 
+  let sinceMs: number | undefined;
   if (options.days !== undefined) {
     const days = Number(options.days);
     if (!Number.isFinite(days) || days <= 0) throw new Error(`--days must be a positive number, got "${options.days}".`);
     sinceMs = now - days * 24 * 60 * 60 * 1000;
-  }
-  if (options.since !== undefined) {
-    if (sinceMs !== undefined) throw new Error("Use either --days or --since, not both.");
+  } else if (options.hours !== undefined) {
+    const hours = Number(options.hours);
+    if (!Number.isFinite(hours) || hours <= 0) throw new Error(`--hours must be a positive number, got "${options.hours}".`);
+    sinceMs = now - hours * 60 * 60 * 1000;
+  } else if (options.since !== undefined) {
     sinceMs = parseBoundary(options.since, "--since");
   }
-  if (options.until !== undefined) {
-    untilMs = parseBoundary(options.until, "--until");
-  }
+
+  const untilMs = options.until !== undefined ? parseBoundary(options.until, "--until") : undefined;
   if (sinceMs !== undefined && untilMs !== undefined && sinceMs > untilMs) {
     throw new Error("--since must be before --until.");
   }

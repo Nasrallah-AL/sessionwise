@@ -24,6 +24,11 @@ describe("resolveTimeWindow", () => {
     expect(window.label).toContain("since");
   });
 
+  it("turns --hours into a since boundary relative to now", () => {
+    const window = resolveTimeWindow({ hours: "6", now });
+    expect(window.sinceMs).toBe(now - 6 * 60 * 60 * 1000);
+  });
+
   it("parses --since and --until as explicit dates", () => {
     const window = resolveTimeWindow({ since: "2026-09-01", until: "2026-09-10" });
     expect(window.sinceMs).toBe(Date.parse("2026-09-01"));
@@ -31,7 +36,11 @@ describe("resolveTimeWindow", () => {
   });
 
   it("rejects --days and --since together", () => {
-    expect(() => resolveTimeWindow({ days: "1", since: "2026-09-01", now })).toThrow("either --days or --since");
+    expect(() => resolveTimeWindow({ days: "1", since: "2026-09-01", now })).toThrow("Use only one of --days, --since");
+  });
+
+  it("rejects --days and --hours together", () => {
+    expect(() => resolveTimeWindow({ days: "1", hours: "1", now })).toThrow("Use only one of --days, --hours");
   });
 
   it("rejects a since after until", () => {
@@ -44,6 +53,10 @@ describe("resolveTimeWindow", () => {
 
   it("rejects a non-positive --days", () => {
     expect(() => resolveTimeWindow({ days: "0", now })).toThrow("--days must be a positive number");
+  });
+
+  it("rejects a non-positive --hours", () => {
+    expect(() => resolveTimeWindow({ hours: "0", now })).toThrow("--hours must be a positive number");
   });
 });
 

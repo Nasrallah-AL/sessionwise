@@ -39,7 +39,7 @@ const force = args.includes("--force");
 let cachedTimeWindow: ReturnType<typeof resolveTimeWindow> | undefined;
 /** Resolved lazily so a bad --since/--until is caught by run().catch, not thrown at import time. */
 function getTimeWindow(): ReturnType<typeof resolveTimeWindow> {
-  cachedTimeWindow ??= resolveTimeWindow({ days: option("--days"), since: option("--since"), until: option("--until") });
+  cachedTimeWindow ??= resolveTimeWindow({ days: option("--days"), hours: option("--hours"), since: option("--since"), until: option("--until") });
   return cachedTimeWindow;
 }
 
@@ -89,6 +89,7 @@ SessionWise v${getOwnVersion()} - analyze, understand, and optimize AI sessions
   --out <path>                     scan/analyze/dashboard output path
   --force                          apply: proceed without a passing verify
   --days <n>                       only calls from the last n days
+  --hours <n>                      only calls from the last n hours
   --since <date>                   only calls at or after this date
   --until <date>                   only calls at or before this date
   --recent <n>                     only the n most recently active sessions
@@ -138,7 +139,7 @@ function getRecentCap(applyDefault: boolean): number | undefined {
   const recentOption = option("--recent");
   if (recentOption !== undefined) return parsePositiveInt(recentOption, "--recent");
   if (!applyDefault) return undefined;
-  const explicitlyScoped = Boolean(option("--days") || option("--since") || option("--until") || option("--session")) || args.includes("--all");
+  const explicitlyScoped = Boolean(option("--days") || option("--hours") || option("--since") || option("--until") || option("--session")) || args.includes("--all");
   return explicitlyScoped ? undefined : DEFAULT_SCAN_RECENT;
 }
 

@@ -1,183 +1,211 @@
 # SessionWise
 
-Analyze, understand, and optimize AI sessions. SessionWise turns agent transcripts and normalized LLM events into session-level evidence, recommendations, live signals, and a self-contained dashboard. Claude Code is the default adapter, not the only source.
+[![CI](https://github.com/Nasrallah-AL/sessionwise/actions/workflows/ci.yml/badge.svg)](https://github.com/Nasrallah-AL/sessionwise/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/sessionwise.svg)](https://www.npmjs.com/package/sessionwise)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+Analyze, understand, and optimize AI sessions. SessionWise reads Claude Code transcripts (or normalized JSON/JSONL events), finds patterns that cost time and tokens, and shows evidence for every finding.
+
+Installed from npm as **`sessionwise`**. The command works as `sessionwise`, `sw`, or `wise`, same binary.
 
 ## Why session-level analysis
 
-Individual calls hide the patterns that waste time and money: context that grows across turns, unchanged failures, repeated tool reads, poor cache use, and reasoning effort that never reaches the output. SessionWise evaluates the complete run before suggesting a change.
+A single call can look fine on its own. A session reveals what a single call cannot: context growing turn over turn, the same failure retried unchanged, a tool re-read that already gave the same answer, cache misses on a prompt that barely changed, or reasoning effort that never reached the output. SessionWise looks at the whole run before it suggests anything.
 
 ## Install
 
 ```bash
-npm install sessionwise
+npm install -g sessionwise
+sessionwise --version
 ```
 
-Node 20.12 or newer.
+Node 20.12 or newer. No install: `npx sessionwise scan`.
+
+## First run
 
 ```bash
-sessionwise --version   # or: sessionwise -v
+sessionwise scan
 ```
 
-Once a day, any command (except `--json` mode) checks npm for a newer release
-and prints a one-line note if one exists — never more than once per 24 hours,
-using a local cache, and it reads only a version number. Disable with
-`--no-update-check` or `SESSIONWISE_NO_UPDATE_CHECK=1`. `sessionwise privacy`
-covers exactly what this does.
+```text
+SessionWise | session intelligence
+
+Showing the 5 most recently active sessions (of 89 total). Use --all or --days N to see more.
+
+5 sessions · 250 events · $0.0000 recorded
+25,038,828 input · 124,544 output · 5 errors
+
+2 recommendations
+
+REVIEW  Session context grew faster than the work
+      Compact or checkpoint the session before the next phase of work.
+      first input: 44391 | last input: 204096 | growth: 4.6x
+      context-growth:47720427-18a2-4f05-b73a-7a41c50168ff
+
+Full report written to sessionwise-report.html (--no-report to skip)
+```
+
+`scan` only looks at your 5 most recently active sessions by default and writes a browsable report alongside the terminal summary. Everything is local: no network call, no API key needed.
 
 ## Commands
 
-**Observe**
+### Observe
+
+Local, no network call, no credential needed.
 
 | Command | Purpose |
 | --- | --- |
 | `sessionwise scan` | Quick look: 5 most recent sessions, writes a report |
-| `sessionwise analyze` | `scan`, plus opt-in Jev relevance for the same sessions, writes a report |
 | `sessionwise sessions` | List recorded sessions |
-| `sessionwise inspect <id>` | Show one session with its evidence |
+| `sessionwise inspect <id>` | One session, in full, with its evidence |
 | `sessionwise why` | Where the tokens and calls actually go, grouped by model |
-| `sessionwise metrics` | Compare model picking, cache, context efficiency, and health |
+| `sessionwise metrics` | Model picking, cache, context efficiency, and health, per session |
 | `sessionwise model-fit` | Sessions ranked by model-fit score, worst first |
 | `sessionwise cache` | Sessions ranked by cache hit rate, worst first |
 | `sessionwise context` | Sessions ranked by context efficiency, worst first |
 | `sessionwise health` | Sessions ranked by health score, worst first |
 
-**Explain**
+```bash
+sessionwise why --model claude-sonnet-5
+sessionwise model-fit
+sessionwise inspect debug-checkout --json
+```
+
+### Explain
 
 | Command | Purpose |
 | --- | --- |
 | `sessionwise recommend` | Evidence-backed recommendations |
 | `sessionwise waste` | Just the opportunities, grouped by category, safest first |
 | `sessionwise show <id>` | The individual calls behind one recommendation |
-| `sessionwise relevance` | Judge context, skill, and tool relevance with Jev |
+| `sessionwise relevance` | Judge context, skill, and tool relevance with Jev (opt-in) |
+| `sessionwise analyze` | `scan` plus opt-in Jev relevance for the same sessions, writes a report |
 
-**Decide**
+```bash
+sessionwise waste
+sessionwise show cache-opportunity:debug-checkout
+sessionwise analyze --recent 5 --limit 30
+```
+
+### Decide
 
 | Command | Purpose |
 | --- | --- |
-| `sessionwise verify <id>` | Sanity-check a recommendation's evidence with Jev |
+| `sessionwise verify <id>` | Sanity-check a recommendation's evidence with Jev (opt-in) |
 | `sessionwise apply <id>` | Record that a recommendation was acted on |
 
-**Report**
+```bash
+sessionwise verify model-fit:debug-checkout
+sessionwise apply model-fit:debug-checkout
+```
+
+### Report
 
 | Command | Purpose |
 | --- | --- |
 | `sessionwise live` | Watch the event ledger for new findings |
-| `sessionwise dashboard` | Generate a responsive, self-contained HTML dashboard |
+| `sessionwise dashboard` | Write a self-contained HTML dashboard |
 | `sessionwise adapters` | List available data adapters |
 | `sessionwise privacy` | What is read, sent, and stored, per command |
 | `sessionwise guide` | Which model tier fits which kind of turn |
-| `sessionwise jev` | Check the Jev connection used by verify/relevance |
-
-Commands read `~/.claude/projects` through the Claude Code adapter by default. Use `--claude-dir <path>` to override it, or `--adapter file --file <events.jsonl>` for normalized events. All commands accept `--json`. Dashboard generation also accepts `--out <report.html>`.
+| `sessionwise jev` | Check the Jev connection used by verify/relevance/analyze |
 
 ```bash
-sessionwise scan
-sessionwise why --model claude-sonnet-5
-sessionwise waste
-sessionwise metrics
-sessionwise dashboard --out sessionwise-report.html
+sessionwise dashboard --out report.html
+sessionwise privacy
+sessionwise jev
 ```
 
-### Scanning by time
+Every command accepts `--json` for machine-readable output. `sessionwise --help` lists every flag.
 
-Every command that reads sessions (`scan`, `sessions`, `inspect`, `why`,
-`metrics`, `model-fit`, `cache`, `context`, `health`, `recommend`, `waste`,
-`show`, `dashboard`, `live`) accepts a time window:
+## Scope: time, sessions, and history
+
+Every command that reads sessions accepts a time window or a session limit. These combine with each other but not with themselves (pick one of `--days`/`--hours`/`--since`).
+
+| Flag | Effect | Example |
+| --- | --- | --- |
+| `--days <n>` | Only calls from the last n days | `--days 7` |
+| `--hours <n>` | Only calls from the last n hours | `--hours 6` |
+| `--since <date>` | Only calls at or after this date | `--since 2026-09-01` |
+| `--until <date>` | Only calls at or before this date, combines with any of the above | `--until 2026-09-10` |
+| `--session <id>` | Only this one session | `--session debug-checkout` |
+| `--recent <n>` | Only the n most recently active sessions | `--recent 20` |
+| `--all` | No cap at all, full history | `--all` |
 
 ```bash
-sessionwise scan --days 7                              # last 7 days
-sessionwise scan --since 2026-09-01                    # everything since a date
-sessionwise scan --since 2026-09-01 --until 2026-09-10 # an explicit range
+sessionwise scan --hours 6
+sessionwise why --days 7
+sessionwise dashboard --since 2026-09-01 --until 2026-09-10
+sessionwise metrics --session debug-checkout
 ```
 
-`--days` and `--since` are mutually exclusive; `--until` can combine with
-either. Dates accept anything `Date.parse` understands (`2026-09-01`,
-`2026-09-01T00:00:00Z`). The window filters individual calls before sessions
-are summarized, so a session that started earlier and continued into the
-window shows only the calls that happened in it. An invalid or contradictory
-window (`--since` after `--until`, both `--days` and `--since`) fails
-immediately with a clear message, before anything is read.
+Dates accept anything `Date.parse` understands (`2026-09-01`, `2026-09-01T00:00:00Z`). A window filters individual calls before sessions are summarized, so a session that started earlier and continued into the window shows only the calls inside it. A bad or contradictory window fails immediately with a clear message, before anything is read.
 
-### scan's default scope
+**`scan` defaults to your 5 most recently active sessions**, not your entire history. `--days`, `--hours`, `--since`, `--until`, `--session`, `--all`, or an explicit `--recent` all disable that default. Every other command is unrestricted by default.
 
-`scan` is the "quick look" command, and defaults accordingly: unless you pass
-`--days`, `--since`, `--until`, `--session`, `--all`, or an explicit
-`--recent`, it only analyzes your **5 most recently active sessions** — not
-your entire Claude Code history. Every other command (`why`, `metrics`,
-`dashboard`, etc.) is unrestricted by default; the cap only auto-applies to
-`scan`, and only when nothing else already scoped the analysis.
+`scan` and `analyze` also write `sessionwise-report.html` after printing their summary. Pass `--no-report` to skip it, or `--out <path>` to change where it goes.
+
+## Analyze and relevance
+
+`analyze` runs the same local analysis as `scan`, then scopes opt-in Jev relevance judging to exactly the sessions that analysis covered, writes the relevance report, and folds it into the dashboard:
 
 ```bash
-sessionwise scan                 # 5 most recent sessions (default)
-sessionwise scan --recent 1       # just the most recent session
-sessionwise scan --recent 20      # the 20 most recent sessions
-sessionwise scan --all            # your entire history, no cap
-sessionwise scan --days 7         # explicit scope also disables the default cap
+sessionwise analyze --recent 5 --limit 30
 ```
 
-`scan` also writes `sessionwise-report.html` after printing the summary (pass
-`--no-report` to skip it, or `--out <path>` to change where it's written) —
-a persistent, browsable report is usually more useful than a long terminal
-dump, especially when `scan` is invoked from inside an agent session where
-printed output consumes the agent's own context.
+If Jev isn't connected, or the current adapter isn't `claude-code`, `analyze` says so and still produces the local analysis and report. It never fails the whole command over the opt-in part.
 
-### Verify, then apply
-
-`verify` and `apply` are deliberately separate and deliberately small. Neither
-replays real traffic and neither changes a provider config, model setting, or
-running session — SessionWise only reasons about, and records decisions
-about, evidence it has already computed.
+To run relevance on its own, without the local analysis:
 
 ```bash
-sessionwise verify model-fit:debug-checkout   # sanity-checks the evidence with Jev
+sessionwise relevance --session <session-id> --limit 30
+sessionwise dashboard
+```
+
+The report shows each category independently:
+
+| Category | Relevant | Irrelevant | Uncertain |
+| --- | --- | --- | --- |
+| Context | Tool results that helped answer the request | Unrelated or redundant results | Evidence was insufficient |
+| Skills | Skills appropriate for the request | Skills unrelated to the request | Purpose could not be established |
+| Tools | Tool calls that advanced the request | Unnecessary or redundant calls | Usefulness depended on hidden context |
+
+## Verify, then apply
+
+`verify` and `apply` are deliberately small. Neither replays real traffic, and neither changes a provider config, model setting, or running session. SessionWise only reasons about evidence it already computed, and records the decision.
+
+```bash
+sessionwise verify model-fit:debug-checkout    # sanity-checks the evidence with Jev
 sessionwise apply model-fit:debug-checkout     # requires a passing verify first
 ```
 
-`apply` on a `safe`-risk recommendation records the decision immediately.
-`review`-risk and `verify`-risk recommendations refuse until you verify first,
-or pass `--force` to record the decision on your own judgment. Every decision
-is appended to `~/.sessionwise/decisions.json` (override with
-`--decisions-file`); nothing else on disk or in a provider account changes.
+`apply` on a `safe`-risk recommendation records immediately. `review` and `verify`-risk recommendations refuse until you verify first, or pass `--force` to record the decision on your own judgment. Every decision is appended to `~/.sessionwise/decisions.json` (override with `--decisions-file`).
 
 ## Connecting to Jev
 
-Only two commands ever call Jev: `verify` and `relevance`. Every other
-command, including `scan`, `why`, `waste`, and `dashboard`, runs entirely
-offline and needs no credential at all.
-
-`sessionwise jev` checks the connection instantly, with no network call and
-no session scan:
+Three commands ever call Jev: `verify`, `relevance`, and `analyze` (for its relevance step only). Every other command runs entirely offline.
 
 ```bash
 sessionwise jev
 ```
 
-```
+```text
 Not connected
 
 Not connected to Jev.
-
-SessionWise sends nothing to Jev on its own. Only `sessionwise verify` and
-`sessionwise relevance` call it, and only when you run them.
 
 Quickest: set one of these environment variables.
   TYPESAFE_API_KEY     https://console.typesafe.ai/settings/keys
   OPENROUTER_API_KEY    sk-or-...
   CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
 
-Recommended: install the jevctl CLI once and log in. It stores the key in
-your OS keychain, and SessionWise reads that same stored key automatically
--- nothing to configure here.
+Recommended: install the jevctl CLI once and log in.
   npm install -g jevctl
   jev auth login
-  jev auth status   # confirms which provider is connected
+  jev auth status
 ```
 
-If a credential is already stored via `jev auth login`, or set as an
-environment variable, `verify` and `relevance` pick it up automatically —
-there is nothing to configure in SessionWise itself. If nothing is found,
-`verify` and `relevance` fail immediately with this same message, before
-scanning any transcripts, instead of surfacing a raw HTTP error.
+If a credential is already stored via `jev auth login`, or set as an environment variable, `verify`/`relevance`/`analyze` pick it up automatically. Nothing to configure in SessionWise itself. If nothing is found, those commands fail immediately with this same message, before reading anything, instead of surfacing a raw HTTP error.
 
 ## Metrics
 
@@ -188,56 +216,29 @@ scanning any transcripts, instead of surfacing a raw HTTP error.
 | Cache hit and creation | Measured from Claude usage metadata |
 | Context growth | Measured across calls in one session |
 | Context efficiency | Inferred metadata proxy using growth, repeated tools, and failures |
-| Context relevance | Unavailable until content-aware analysis is enabled |
+| Context relevance | Unavailable until `relevance`/`analyze` runs |
 | Session health | Measured errors and repeated tool behavior |
 
-SessionWise does not present context efficiency as semantic relevance. True relevance requires opt-in content analysis.
+SessionWise never presents an inferred metric as measured. Every recommendation carries its own evidence, and `sessionwise guide` prints the exact thresholds behind model-fit scoring.
 
-Use `sessionwise why`, `sessionwise model-fit`, `sessionwise cache`, `sessionwise context`, or `sessionwise health` to see any one of these ranked across every session, worst first. `sessionwise privacy` prints the exact boundary below for every command, and `sessionwise guide` prints the thresholds behind model-fit scoring.
+## Privacy
 
-## Semantic relevance
+| Commands | What happens |
+| --- | --- |
+| `scan`, `analyze` (local part), `sessions`, `inspect`, `why`, `metrics`, `model-fit`, `cache`, `context`, `health`, `waste`, `recommend`, `show`, `dashboard`, `live` | Metadata only. Nothing leaves the machine. |
+| `relevance`, `analyze` (relevance step) | Sends the sampled current request plus one candidate's context, skill, or tool detail to Jev. |
+| `verify` | Sends only one recommendation's evidence numbers (never raw prompts or tool output) to Jev. |
+| `apply` | Local only. Appends one line to `~/.sessionwise/decisions.json`. |
 
-Semantic analysis is separate and opt-in because it sends sampled content to your configured Jev provider.
+`--limit` defaults to 50. Use `--session`, `--recent`, `--days`, or `--hours` to keep relevance sampling small and cheap. Run `sessionwise privacy` at any time for the full boundary, resolved to your actual file paths.
 
-```bash
-# One command: local metrics + relevance for the same sessions + a report.
-sessionwise analyze --recent 5 --limit 30
-```
-
-`analyze` is `scan` plus relevance: it runs the same local analysis, then scopes
-relevance judging to *exactly the sessions that analysis covered* (respecting
-`--recent`/`--days`/`--since`/`--until`/`--session`/`--all`), writes the
-relevance report, and includes it in the dashboard. If Jev isn't connected, or
-the current adapter isn't `claude-code`, it says so and still produces the
-local analysis and report — it never fails the whole command over the
-opt-in part.
-
-To run relevance judging on its own, without the local analysis:
+## Updates
 
 ```bash
-sessionwise relevance --session <session-id> --limit 30
-sessionwise dashboard
+sessionwise --version
 ```
 
-The generated report shows each category independently:
-
-| Category | Relevant | Irrelevant | Uncertain |
-| --- | --- | --- | --- |
-| Context | Tool results that helped answer the request | Unrelated or redundant results | Evidence was insufficient |
-| Skills | Skills appropriate for the request | Skills unrelated to the request | Purpose could not be established |
-| Tools | Tool calls that advanced the request | Unnecessary or redundant calls | Usefulness depended on hidden context |
-
-Privacy boundary:
-
-- Normal `scan`, `why`, `metrics`, `model-fit`, `cache`, `context`, `health`, `waste`, `recommend`, `show`, and `dashboard` commands remain metadata-only.
-- `analyze` and `relevance` send only the sampled current request and candidate context, skill, or tool details to Jev.
-- `verify` sends only one recommendation's evidence numbers (never raw prompts or tool output) to Jev, to sanity-check the finding.
-- `apply` never sends anything anywhere. It only appends a line to your local decisions ledger.
-- Requests, tool arguments, and tool results exist only in memory during judging.
-- `~/.sessionwise/relevance.json` stores labels, probabilities, names, and IDs only. It never stores raw prompts, arguments, or results.
-- `--limit` defaults to 50. Use `--session`, `--recent`, or `--days` to keep analysis focused and inexpensive.
-
-Run `sessionwise privacy` at any time for this same boundary, resolved to your actual paths.
+Once every 24 hours, any command except `--json` mode checks npm for a newer release and prints a one-line note if one exists, using a local cache so it never adds a network call more than once a day. Disable with `--no-update-check` or `SESSIONWISE_NO_UPDATE_CHECK=1`.
 
 ## Adapters
 
@@ -257,7 +258,7 @@ Built in:
 - `claude-code`: reads project and subagent transcripts, aggregating duplicate content-block rows by `message.id`.
 - `file`: reads normalized SessionWise JSON or JSONL events.
 
-Custom adapters can feed the same analysis engine:
+Custom adapters feed the same analysis engine:
 
 ```ts
 import { analyzeSessions, readFromAdapters, type SessionAdapter } from "sessionwise";
@@ -268,13 +269,13 @@ const analysis = analyzeSessions(events);
 
 ## Event format
 
-Adapters should emit one `SessionEvent` per model response or tool event. Provider-specific data stops at this boundary.
+Adapters emit one `SessionEvent` per model response or tool event. Provider-specific data stops at this boundary.
 
 ```json
 {"id":"evt-1","sessionId":"checkout-debug","timestamp":"2026-09-19T12:00:00Z","provider":"anthropic","model":"claude-sonnet","inputTokens":12500,"outputTokens":420,"cachedInputTokens":0,"costUsd":0.041,"toolName":"read_file"}
 ```
 
-The normalized file adapter can use `~/.sessionwise/events.jsonl` or any path passed with `--file`.
+Use `--adapter file --file <events.jsonl>` to point at your own file, or `~/.sessionwise/events.jsonl` by default.
 
 ## Library
 
@@ -289,14 +290,14 @@ const connection = describeJevConnection(process.env);
 if (!connection.connected) console.log(connection.detail);
 ```
 
-## Live optimization
+### Controlled optimizer
 
-SessionWise separates detection from control. The optimizer has three modes:
+SessionWise separates detection from control. The optimizer never applies a change unless your own callback approves it:
 
 | Mode | Behavior |
 | --- | --- |
-| `observe` | Records proposals; never changes requests |
-| `recommend` | Surfaces proposals; never changes requests |
+| `observe` | Records proposals, never changes requests |
+| `recommend` | Surfaces proposals, never changes requests |
 | `controlled` | Applies a patch only when your `approve` callback returns `true` |
 
 ```ts
@@ -321,15 +322,16 @@ const optimizer = createControlledOptimizer({
 const nextRequest = await optimizer.beforeCall(request, analysis.recommendations);
 ```
 
-Keep `approve` under application ownership. Model switches and reasoning changes should normally remain `verify` recommendations until replay evaluation proves they meet your quality bar.
+Keep `approve` under your own application's control. Model switches and reasoning changes should stay `verify`-risk recommendations until a replay proves they meet your quality bar.
 
-## Initial detectors
+## Detectors
 
 - Cache opportunity
 - Context growth
-- Cost concentration
+- Cost concentration across sessions
 - Repeated failure loops
 - Repeated tool calls
 - Reasoning overhead
+- Model fit
 
-The analysis is deterministic and local. Prompt or response content is not required.
+The analysis is deterministic and local. Prompt or response content is never required.
