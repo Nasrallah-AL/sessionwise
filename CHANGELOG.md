@@ -7,6 +7,11 @@ breaking changes to flags or JSON output; they are called out below.
 
 ## [Unreleased]
 
+### Added
+
+- `--version` / `-v`: prints the installed version.
+- Once-a-day check for a newer published version, cached locally, skipped in `--json` mode. Disable with `--no-update-check` or `SESSIONWISE_NO_UPDATE_CHECK=1`. Documented in `sessionwise privacy`.
+
 ## [0.1.1] - 2026-09-19
 
 ### Changed

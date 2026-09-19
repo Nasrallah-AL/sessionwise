@@ -16,6 +16,7 @@ import { filterToRecentSessions } from "./recent.js";
 import { filterEventsByTime, parsePositiveInt, resolveTimeWindow } from "./time.js";
 import type { Analysis, Recommendation, RelevanceReport, SessionEvent, SessionMetrics } from "./types.js";
 import { verifyRecommendation } from "./verify.js";
+import { checkForUpdate, getOwnVersion } from "./version.js";
 
 const args = process.argv.slice(2);
 const command = args[0] ?? "help";
@@ -31,6 +32,7 @@ const inputPath = resolve(fileOption ?? `${homedir()}/.sessionwise/events.jsonl`
 const claudeRoot = resolve(option("--claude-dir") ?? `${homedir()}/.claude/projects`);
 const relevancePath = resolve(option("--relevance-file") ?? `${homedir()}/.sessionwise/relevance.json`);
 const decisionsPath = resolve(option("--decisions-file") ?? `${homedir()}/.sessionwise/decisions.json`);
+const updateCachePath = resolve(`${homedir()}/.sessionwise/update-check.json`);
 const json = args.includes("--json");
 const force = args.includes("--force");
 
@@ -43,7 +45,7 @@ function getTimeWindow(): ReturnType<typeof resolveTimeWindow> {
 
 function help(): void {
   console.log(`
-SessionWise - analyze, understand, and optimize AI sessions
+SessionWise v${getOwnVersion()} - analyze, understand, and optimize AI sessions
 (also installed as \`sw\` and \`wise\` -- same command, shorter to type)
 
   Observe
@@ -91,6 +93,8 @@ SessionWise - analyze, understand, and optimize AI sessions
   --recent <n>                     only the n most recently active sessions
   --all                            scan: analyze full history, not just the 5 most recent
   --no-report                      scan: skip writing the HTML report
+  --version, -v                    print the installed version
+  --no-update-check                skip the once-a-day check for a newer version
   --json                           machine-readable output
 `);
 }
@@ -193,6 +197,10 @@ function metricTable(sessions: Analysis["sessions"], pick: (metrics: SessionMetr
 
 async function run(): Promise<void> {
   if (command === "help" || command === "--help" || command === "-h") return help();
+  if (command === "--version" || command === "-v" || command === "version" || args.includes("--version") || args.includes("-v")) {
+    console.log(getOwnVersion());
+    return;
+  }
 
   if (command === "scan") {
     const { analysis, totalSessions, recentCap } = await loadForScan();
@@ -504,6 +512,18 @@ Claude Code transcripts are read from ${claudeRoot} unless --claude-dir points
 elsewhere. Tool inputs and outputs are hashed for repeat detection; the hash
 cannot be reversed into the original content.
 
+Update check                               Once every 24 hours (cached at
+                                            ${updateCachePath}),
+                                            every command except --json runs
+                                            checks whether a newer version is
+                                            on npm (\`npm view sessionwise
+                                            version\`) and prints a one-line
+                                            note if so. It reads only a
+                                            version number, never anything
+                                            about your sessions. Disable with
+                                            --no-update-check or
+                                            SESSIONWISE_NO_UPDATE_CHECK=1.
+
 Run \`sessionwise jev\` to check whether verify/relevance can reach Jev right now.
 `);
     return;
@@ -566,7 +586,22 @@ marked "verify" risk until you run:
   throw new Error(`Unknown command: ${command}`);
 }
 
-run().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+/**
+ * Warns, at most once a day and never in --json mode, when a newer version
+ * is published. Cache lives at ~/.sessionwise/update-check.json; see
+ * `sessionwise privacy` for what this does and how to turn it off.
+ */
+async function warnIfUpdateAvailable(): Promise<void> {
+  if (json || args.includes("--no-update-check") || process.env.SESSIONWISE_NO_UPDATE_CHECK) return;
+  const update = await checkForUpdate(updateCachePath).catch(() => undefined);
+  if (update) {
+    console.error(`\nsessionwise ${update.latest} is available (you have ${update.current}). Update: npm install -g sessionwise@latest`);
+  }
+}
+
+run()
+  .then(() => warnIfUpdateAvailable())
+  .catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });

@@ -14,6 +14,16 @@ npm install sessionwise
 
 Node 20.12 or newer.
 
+```bash
+sessionwise --version   # or: sessionwise -v
+```
+
+Once a day, any command (except `--json` mode) checks npm for a newer release
+and prints a one-line note if one exists — never more than once per 24 hours,
+using a local cache, and it reads only a version number. Disable with
+`--no-update-check` or `SESSIONWISE_NO_UPDATE_CHECK=1`. `sessionwise privacy`
+covers exactly what this does.
+
 ## Commands
 
 **Observe**

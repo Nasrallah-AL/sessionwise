@@ -22,3 +22,5 @@ export type * from "./types.js";
 export type { ControlledOptimizerOptions } from "./optimizer.js";
 export { verifyRecommendation } from "./verify.js";
 export type { VerificationResult } from "./verify.js";
+export { checkForUpdate, compareVersions, fetchLatestVersion, getOwnVersion, isCacheStale } from "./version.js";
+export type { CheckForUpdateOptions, UpdateAvailable, UpdateCache } from "./version.js";
