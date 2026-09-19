@@ -32,8 +32,8 @@ jobs:
         run: |
           node dist/cli.js --help > /dev/null
           node dist/cli.js scan --adapter file --file examples/events.jsonl > /dev/null
-          node dist/cli.js dashboard --adapter file --file examples/events.jsonl --out /tmp/sessionlens-report.html
-          test -s /tmp/sessionlens-report.html
+          node dist/cli.js dashboard --adapter file --file examples/events.jsonl --out /tmp/sessionwise-report.html
+          test -s /tmp/sessionwise-report.html
 
   # Single status for branch rules to require, so the matrix can change without editing the ruleset.
   ci-ok:

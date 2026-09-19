@@ -26,10 +26,10 @@ function option(name: string): string | undefined {
 
 const fileOption = option("--file");
 const adapterId = option("--adapter") ?? option("--source") ?? (fileOption ? "file" : "claude-code");
-const inputPath = resolve(fileOption ?? `${homedir()}/.sessionlens/events.jsonl`);
+const inputPath = resolve(fileOption ?? `${homedir()}/.sessionwise/events.jsonl`);
 const claudeRoot = resolve(option("--claude-dir") ?? `${homedir()}/.claude/projects`);
-const relevancePath = resolve(option("--relevance-file") ?? `${homedir()}/.sessionlens/relevance.json`);
-const decisionsPath = resolve(option("--decisions-file") ?? `${homedir()}/.sessionlens/decisions.json`);
+const relevancePath = resolve(option("--relevance-file") ?? `${homedir()}/.sessionwise/relevance.json`);
+const decisionsPath = resolve(option("--decisions-file") ?? `${homedir()}/.sessionwise/decisions.json`);
 const json = args.includes("--json");
 const force = args.includes("--force");
 
@@ -42,36 +42,37 @@ function getTimeWindow(): ReturnType<typeof resolveTimeWindow> {
 
 function help(): void {
   console.log(`
-SessionLens - analyze, understand, and optimize AI sessions
+SessionWise - analyze, understand, and optimize AI sessions
+(also installed as \`sw\` and \`wise\` -- same command, shorter to type)
 
   Observe
-  sessionlens scan                 summarize sessions and findings
-  sessionlens sessions             list recorded sessions
-  sessionlens inspect <id>         inspect one session
-  sessionlens why                  where the tokens and calls actually go, by model
-  sessionlens metrics              model, cache, context, and health metrics
-  sessionlens model-fit            sessions ranked by model-fit score
-  sessionlens cache                sessions ranked by cache hit rate
-  sessionlens context              sessions ranked by context efficiency
-  sessionlens health               sessions ranked by health score
+  sessionwise scan                 summarize sessions and findings
+  sessionwise sessions             list recorded sessions
+  sessionwise inspect <id>         inspect one session
+  sessionwise why                  where the tokens and calls actually go, by model
+  sessionwise metrics              model, cache, context, and health metrics
+  sessionwise model-fit            sessions ranked by model-fit score
+  sessionwise cache                sessions ranked by cache hit rate
+  sessionwise context              sessions ranked by context efficiency
+  sessionwise health               sessions ranked by health score
 
   Explain
-  sessionlens recommend            evidence-backed recommendations
-  sessionlens waste                just the opportunities, grouped by category
-  sessionlens show <id>            the calls behind one recommendation
-  sessionlens relevance            judge context, skill, and tool relevance with Jev
+  sessionwise recommend            evidence-backed recommendations
+  sessionwise waste                just the opportunities, grouped by category
+  sessionwise show <id>            the calls behind one recommendation
+  sessionwise relevance            judge context, skill, and tool relevance with Jev
 
   Decide
-  sessionlens verify <id>          sanity-check a recommendation's evidence with Jev
-  sessionlens apply <id>           record that a recommendation was acted on
+  sessionwise verify <id>          sanity-check a recommendation's evidence with Jev
+  sessionwise apply <id>           record that a recommendation was acted on
 
   Report
-  sessionlens live                 watch a JSONL ledger for new findings
-  sessionlens dashboard            write a self-contained HTML dashboard
-  sessionlens adapters             list available data adapters
-  sessionlens privacy              what is read, sent, and stored
-  sessionlens guide                which model tier fits which kind of turn
-  sessionlens jev                  check the Jev connection used by verify/relevance
+  sessionwise live                 watch a JSONL ledger for new findings
+  sessionwise dashboard            write a self-contained HTML dashboard
+  sessionwise adapters             list available data adapters
+  sessionwise privacy              what is read, sent, and stored
+  sessionwise guide                which model tier fits which kind of turn
+  sessionwise jev                  check the Jev connection used by verify/relevance
 
   --adapter claude-code|file       data adapter; defaults to Claude Code
   --claude-dir <path>              Claude Code projects directory
@@ -104,7 +105,7 @@ function printRecommendations(recommendations: Recommendation[]): void {
 }
 
 function printScan(analysis: Analysis): void {
-  console.log("\nSessionLens | session intelligence\n");
+  console.log("\nSessionWise | session intelligence\n");
   const window = getTimeWindow();
   if (window.label) console.log(`Window: ${window.label}\n`);
   console.log(`${analysis.sessions.length} sessions · ${analysis.totals.eventCount} events · $${analysis.totals.costUsd.toFixed(4)} recorded`);
@@ -131,7 +132,7 @@ async function loadRelevance(): Promise<RelevanceReport | undefined> {
   }
 }
 
-/** Fails fast, before any Jev call, with the same pointer `sessionlens jev` prints. */
+/** Fails fast, before any Jev call, with the same pointer `sessionwise jev` prints. */
 function requireJevConnection(env: NodeJS.ProcessEnv): void {
   const connection = describeJevConnection(env);
   if (!connection.connected) throw new Error(connection.detail);
@@ -180,7 +181,7 @@ async function run(): Promise<void> {
 
   if (command === "inspect") {
     const id = args[1];
-    if (!id) throw new Error("Usage: sessionlens inspect <id>");
+    if (!id) throw new Error("Usage: sessionwise inspect <id>");
     const analysis = await load();
     const session = analysis.sessions.find((item) => item.id === id);
     if (!session) throw new Error(`Session not found: ${id}`);
@@ -252,7 +253,7 @@ async function run(): Promise<void> {
 
   if (command === "show") {
     const id = args[1];
-    if (!id) throw new Error("Usage: sessionlens show <recommendation-id>");
+    if (!id) throw new Error("Usage: sessionwise show <recommendation-id>");
     const analysis = await load();
     const recommendation = analysis.recommendations.find((item) => item.id === id);
     if (!recommendation) throw new Error(`Recommendation not found: ${id}`);
@@ -281,7 +282,7 @@ async function run(): Promise<void> {
 
   if (command === "verify") {
     const id = args[1];
-    if (!id) throw new Error("Usage: sessionlens verify <recommendation-id>");
+    if (!id) throw new Error("Usage: sessionwise verify <recommendation-id>");
     const analysis = await load();
     const recommendation = analysis.recommendations.find((item) => item.id === id);
     if (!recommendation) throw new Error(`Recommendation not found: ${id}`);
@@ -302,20 +303,20 @@ async function run(): Promise<void> {
     }
     console.log(`\n${result.passed ? "PASS" : "FAIL"}  ${recommendation.title}`);
     console.log(result.rationale);
-    console.log(result.passed ? `\nsessionlens apply ${id}` : "\nThis recommendation was not marked verified.");
+    console.log(result.passed ? `\nsessionwise apply ${id}` : "\nThis recommendation was not marked verified.");
     return;
   }
 
   if (command === "apply") {
     const id = args[1];
-    if (!id) throw new Error("Usage: sessionlens apply <recommendation-id>");
+    if (!id) throw new Error("Usage: sessionwise apply <recommendation-id>");
     const analysis = await load();
     const recommendation = analysis.recommendations.find((item) => item.id === id);
     if (!recommendation) throw new Error(`Recommendation not found: ${id}`);
     const decisions = await readDecisions(decisionsPath);
     const verified = Boolean(latestDecision(decisions, id, "verified"));
     if (recommendation.risk === "verify" && !verified && !force) {
-      throw new Error(`This recommendation needs verification first. Run: sessionlens verify ${id}`);
+      throw new Error(`This recommendation needs verification first. Run: sessionwise verify ${id}`);
     }
     if (recommendation.risk === "review" && !verified && !force) {
       throw new Error("This recommendation should be reviewed first. Re-run with --force to record it anyway.");
@@ -332,7 +333,7 @@ async function run(): Promise<void> {
     }
     console.log(`\nRecorded as applied: ${recommendation.title}`);
     console.log(`Action to take: ${recommendation.suggestion}`);
-    console.log(`\nSessionLens does not change any provider or agent config. This only records your decision at ${decisionsPath}.`);
+    console.log(`\nSessionWise does not change any provider or agent config. This only records your decision at ${decisionsPath}.`);
     return;
   }
 
@@ -415,7 +416,7 @@ async function run(): Promise<void> {
   }
 
   if (command === "dashboard") {
-    const output = resolve(option("--out") ?? "sessionlens-report.html");
+    const output = resolve(option("--out") ?? "sessionwise-report.html");
     await writeFile(output, generateDashboard(await load(), await loadRelevance()), "utf8");
     console.log(`Dashboard written to ${output}`);
     return;
@@ -423,7 +424,7 @@ async function run(): Promise<void> {
 
   if (command === "privacy") {
     console.log(`
-SessionLens | privacy
+SessionWise | privacy
 
 Local by default. Nothing is read, sent, or stored unless a command below says so.
 
@@ -456,7 +457,7 @@ Claude Code transcripts are read from ${claudeRoot} unless --claude-dir points
 elsewhere. Tool inputs and outputs are hashed for repeat detection; the hash
 cannot be reversed into the original content.
 
-Run \`sessionlens jev\` to check whether verify/relevance can reach Jev right now.
+Run \`sessionwise jev\` to check whether verify/relevance can reach Jev right now.
 `);
     return;
   }
@@ -474,7 +475,7 @@ Run \`sessionlens jev\` to check whether verify/relevance can reach Jev right no
 
   if (command === "guide") {
     console.log(`
-SessionLens | model-fit guide
+SessionWise | model-fit guide
 
 How a turn is classified, from its observed shape alone (no content read):
 
@@ -486,7 +487,7 @@ A model-fit finding fires when a session's actual model tier sits above what
 its turns needed on average. It is inferred, not measured, and is always
 marked "verify" risk until you run:
 
-  sessionlens verify <recommendation-id>
+  sessionwise verify <recommendation-id>
 `);
     return;
   }

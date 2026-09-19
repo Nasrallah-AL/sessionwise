@@ -1,16 +1,18 @@
 {
-  "name": "sessionlens",
+  "name": "sessionwise",
   "version": "0.1.0",
   "description": "Analyze, understand, and optimize AI sessions.",
   "type": "module",
   "author": "Nasr Shaer",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Nasrallah-AL/sessionlens.git"
+    "url": "git+https://github.com/Nasrallah-AL/sessionwise.git"
   },
-  "bugs": "https://github.com/Nasrallah-AL/sessionlens/issues",
+  "bugs": "https://github.com/Nasrallah-AL/sessionwise/issues",
   "bin": {
-    "sessionlens": "dist/cli.js"
+    "sessionwise": "dist/cli.js",
+    "sw": "dist/cli.js",
+    "wise": "dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

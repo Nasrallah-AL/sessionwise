@@ -3,7 +3,7 @@ import { describeJevConnection } from "../src/jev-connection.js";
 
 // Force the file-backed store at an empty path so these assertions never
 // depend on whatever is in the machine's real OS keychain.
-const isolated = { JEV_CREDENTIAL_STORE: "file", HOME: "/tmp/sessionlens-test-no-credentials" };
+const isolated = { JEV_CREDENTIAL_STORE: "file", HOME: "/tmp/sessionwise-test-no-credentials" };
 
 describe("describeJevConnection", () => {
   it("reports connected when a TypeSafe key is in the environment", () => {

@@ -22,7 +22,7 @@ export function eventFileAdapter(options: { path: string }): SessionAdapter {
   return {
     id: "file",
     label: "Event file",
-    description: "Reads normalized SessionLens JSON or JSONL events.",
+    description: "Reads normalized SessionWise JSON or JSONL events.",
     read: () => readEvents(options.path),
   };
 }

@@ -25,8 +25,8 @@ jobs:
           PKG="v$(node -p "require('./package.json').version")"
           test "$PKG" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != package ${PKG}"; exit 1; }
       # Trusted Publishing: npm authenticates this job via GitHub OIDC (id-token: write).
-      # No npm token is stored anywhere. Configure once on npmjs.com under sessionlens's
-      # Settings > Trusted Publisher: GitHub Actions, owner Nasrallah-AL, repo sessionlens,
+      # No npm token is stored anywhere. Configure once on npmjs.com under sessionwise's
+      # Settings > Trusted Publisher: GitHub Actions, owner Nasrallah-AL, repo sessionwise,
       # workflow release.yml. Requires npm 11.5.1 or newer, hence the upgrade step.
       # The very first publish of a new package name cannot use Trusted Publishing --
       # it has to exist on npm before a trusted publisher can be attached to it. Run

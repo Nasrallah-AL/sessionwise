@@ -8,7 +8,7 @@ let dir: string;
 let path: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), "sessionlens-decisions-"));
+  dir = await mkdtemp(join(tmpdir(), "sessionwise-decisions-"));
   path = join(dir, "nested", "decisions.json");
 });
 

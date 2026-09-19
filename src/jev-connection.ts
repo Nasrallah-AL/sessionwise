@@ -11,8 +11,8 @@ export interface JevConnection {
 }
 
 const SETUP_POINTER = [
-  "SessionLens sends nothing to Jev on its own. Only `sessionlens verify` and",
-  "`sessionlens relevance` call it, and only when you run them.",
+  "SessionWise sends nothing to Jev on its own. Only `sessionwise verify` and",
+  "`sessionwise relevance` call it, and only when you run them.",
   "",
   "Quickest: set one of these environment variables.",
   "  TYPESAFE_API_KEY     https://console.typesafe.ai/settings/keys",
@@ -20,7 +20,7 @@ const SETUP_POINTER = [
   "  CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID",
   "",
   "Recommended: install the jevctl CLI once and log in. It stores the key in",
-  "your OS keychain, and SessionLens reads that same stored key automatically",
+  "your OS keychain, and SessionWise reads that same stored key automatically",
   "-- nothing to configure here.",
   "  npm install -g jevctl",
   "  jev auth login",

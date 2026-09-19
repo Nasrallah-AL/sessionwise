@@ -13,7 +13,7 @@ describe("generateDashboard", () => {
       costUsd: 0.01,
     }]));
 
-    expect(html).toContain("SessionLens report");
+    expect(html).toContain("SessionWise report");
     expect(html).toContain("session-1");
     expect(html).toContain("@media(max-width:760px)");
     expect(html).not.toMatch(/https?:\/\//);
