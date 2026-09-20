@@ -7,6 +7,12 @@ breaking changes to flags or JSON output; they are called out below.
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-09-20
+
+### Fixed
+
+- Dashboard report: "Open session" links (on recommendation cards and in the Relevance table) did nothing when clicked outside the Sessions tab, because the target row lives in a section that's hidden while another tab is active. They now switch to the Sessions tab, scroll to the row, and briefly highlight it.
+
 ## [0.1.5] - 2026-09-20
 
 ### Added

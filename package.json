@@ -1,6 +1,6 @@
 {
   "name": "sessionwise",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Analyze, understand, and optimize AI sessions.",
   "type": "module",
   "author": "Nasr Shaer",
