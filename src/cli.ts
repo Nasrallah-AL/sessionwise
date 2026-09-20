@@ -62,8 +62,9 @@ const HELP_SECTIONS: HelpSection[] = [
     entries: [
       { command: "sessionwise scan", description: "quick look: 5 most recent sessions, writes a report" },
       { command: "sessionwise analyze", description: "scan, plus opt-in Jev relevance, writes a report" },
+      { command: "sessionwise overview", description: "aggregated recommendations, ranked by estimated savings" },
       { command: "sessionwise sessions", description: "list recorded sessions" },
-      { command: "sessionwise inspect <id>", description: "inspect one session" },
+      { command: "sessionwise inspect <id>", description: "one session: metrics, relevance, and its recommendations" },
       { command: "sessionwise why", description: "where the tokens and calls actually go, by model" },
       { command: "sessionwise metrics", description: "model, cache, context, and health metrics" },
       { command: "sessionwise model-fit", description: "sessions ranked by model-fit score" },
@@ -165,8 +166,99 @@ function printRecommendations(recommendations: Recommendation[]): void {
     console.log(`\n${item.risk.toUpperCase()}  ${item.title}`);
     console.log(`      ${item.suggestion}`);
     console.log(`      ${item.evidence.map((evidence) => `${evidence.label}: ${evidence.value}`).join(" | ")}`);
+    if (item.estimatedSavingsUsd) console.log(`      est. savings: $${item.estimatedSavingsUsd.toFixed(4)}`);
     console.log(`      ${item.id}`);
   }
+}
+
+function printOverview(analysis: Analysis): void {
+  console.log("\nSessionWise | overview\n");
+  const window = getTimeWindow();
+  if (window.label) console.log(`Window: ${window.label}\n`);
+  const hasCost = analysis.events.some((event) => (event.costUsd ?? 0) > 0);
+  console.log(hasCost
+    ? `${analysis.sessions.length} sessions · ${analysis.totals.eventCount} events · $${analysis.totals.costUsd.toFixed(4)} estimated cost`
+    : `${analysis.sessions.length} sessions · ${analysis.totals.eventCount} events · cost not tracked for this adapter`);
+  console.log(`${analysis.totals.inputTokens.toLocaleString()} input · ${analysis.totals.outputTokens.toLocaleString()} output · ${analysis.totals.errorCount} errors`);
+
+  const aggregated = analysis.aggregatedRecommendations;
+  if (!aggregated.length) {
+    console.log("\nNo recommendations. Nothing in this window crossed a detector's threshold.");
+    return;
+  }
+  const totalSavings = aggregated.reduce((sum, item) => sum + item.totalEstimatedSavingsUsd, 0);
+  const affectedSessions = new Set(aggregated.flatMap((item) => item.topSessions.map((session) => session.sessionId))).size;
+  console.log(
+    `\n$${totalSavings.toFixed(2)} estimated recoverable spend across ${aggregated.length} recommendation${aggregated.length === 1 ? "" : "s"} (at least ${affectedSessions} session${affectedSessions === 1 ? "" : "s"} shown below)`,
+  );
+
+  for (const item of aggregated) {
+    console.log(`\n${item.risk.toUpperCase()}  ${item.title}`);
+    console.log(`      ${item.suggestion}`);
+    console.log(
+      `      ${item.sessionCount} session${item.sessionCount === 1 ? "" : "s"} affected${item.totalEstimatedSavingsUsd ? ` · est. savings: $${item.totalEstimatedSavingsUsd.toFixed(4)}` : ""}`,
+    );
+    for (const session of item.topSessions) {
+      const evidence = session.evidence.map((evidence) => `${evidence.label}: ${evidence.value}`).join(" | ");
+      console.log(`        ${session.sessionId}  ${session.estimatedSavingsUsd ? `$${session.estimatedSavingsUsd.toFixed(4)}  ` : ""}${evidence}`);
+    }
+  }
+}
+
+function printSessionDetail(
+  session: Analysis["sessions"][number],
+  recommendations: Recommendation[],
+  relevance: RelevanceReport | undefined,
+): void {
+  const { metrics } = session;
+  console.log(`\nSessionWise | session ${session.id}\n`);
+  console.log(`${session.startedAt} -> ${session.endedAt}`);
+  console.log(`${session.eventCount} events · $${session.costUsd.toFixed(4)} · ${session.errorCount} errors · ${session.toolCalls} tool calls`);
+  console.log(`models: ${session.models.join(", ") || "unknown"}`);
+  if (session.routes.length) console.log(`routes: ${session.routes.join(", ")}`);
+
+  console.log("\nModel fit");
+  console.log(
+    `  score ${metrics.modelPicking.fitScore ?? "n/a"}/100 · oversized calls ${metrics.modelPicking.oversizedCalls}/${metrics.modelPicking.evaluatedCalls} · actual ${metrics.modelPicking.actualTier} vs suggested ${metrics.modelPicking.suggestedTier}`,
+  );
+
+  console.log("\nCache");
+  console.log(
+    `  hit rate ${metrics.cache.hitRate === null ? "n/a" : `${Math.round(metrics.cache.hitRate * 100)}%`} · read ${metrics.cache.readTokens.toLocaleString()} · creation ${metrics.cache.creationTokens.toLocaleString()} · eligible ${metrics.cache.eligibleTokens.toLocaleString()}`,
+  );
+
+  console.log("\nContext");
+  console.log(
+    `  efficiency ${metrics.context.efficiencyScore ?? "n/a"} · growth ${metrics.context.growthRatio === null ? "n/a" : `${metrics.context.growthRatio.toFixed(1)}x`} · peak ${metrics.context.peakTokens.toLocaleString()} tokens`,
+  );
+
+  console.log("\nHealth");
+  console.log(`  score ${metrics.health.score} · error rate ${Math.round(metrics.health.errorRate * 100)}% · repeated tool rate ${Math.round(metrics.health.repeatedToolRate * 100)}%`);
+
+  const sessionJudgments = relevance?.judgments.filter((judgment) => judgment.sessionId === session.id) ?? [];
+  console.log("\nRelevance (skills, tools, context)");
+  if (!relevance) {
+    console.log("  Not judged yet. Run: sessionwise relevance --session " + session.id);
+  } else if (!sessionJudgments.length) {
+    console.log("  No sampled candidates for this session in the current relevance report.");
+  } else {
+    const byKind = new Map<string, { relevant: number; irrelevant: number; uncertain: number }>();
+    for (const judgment of sessionJudgments) {
+      const bucket = byKind.get(judgment.kind) ?? { relevant: 0, irrelevant: 0, uncertain: 0 };
+      bucket[judgment.label] += 1;
+      byKind.set(judgment.kind, bucket);
+    }
+    for (const [kind, counts] of byKind) {
+      console.log(`  ${kind}: relevant ${counts.relevant} · irrelevant ${counts.irrelevant} · uncertain ${counts.uncertain}`);
+    }
+    const irrelevant = sessionJudgments.filter((judgment) => judgment.label === "irrelevant");
+    for (const judgment of irrelevant.slice(0, 5)) {
+      console.log(`    irrelevant ${judgment.kind}: ${judgment.name}`);
+    }
+  }
+
+  console.log("\nRecommendations");
+  printRecommendations(recommendations);
 }
 
 function printScan(analysis: Analysis, scope: { totalSessions: number; recentCap?: number }): void {
@@ -337,6 +429,16 @@ async function run(): Promise<void> {
     return;
   }
 
+  if (command === "overview") {
+    const analysis = await load();
+    if (json) {
+      console.log(JSON.stringify({ totals: analysis.totals, aggregatedRecommendations: analysis.aggregatedRecommendations }, null, 2));
+      return;
+    }
+    printOverview(analysis);
+    return;
+  }
+
   if (command === "sessions") {
     const analysis = await load();
     return json
@@ -360,10 +462,20 @@ async function run(): Promise<void> {
     const analysis = await load();
     const session = analysis.sessions.find((item) => item.id === id);
     if (!session) throw new Error(`Session not found: ${id}`);
-    const result = { session, events: analysis.events.filter((event) => event.sessionId === id), recommendations: analysis.recommendations.filter((item) => item.sessionId === id) };
-    console.log(JSON.stringify(result, null, 2));
+    const recommendations = analysis.recommendations.filter((item) => item.sessionId === id);
+    if (json) {
+      const relevance = await loadRelevance();
+      const events = analysis.events.filter((event) => event.sessionId === id);
+      const sessionRelevance = relevance
+        ? { ...relevance, judgments: relevance.judgments.filter((judgment) => judgment.sessionId === id) }
+        : undefined;
+      console.log(JSON.stringify({ session, events, recommendations, relevance: sessionRelevance }, null, 2));
+      return;
+    }
+    printSessionDetail(session, recommendations, await loadRelevance());
     return;
   }
+
 
   if (command === "why") {
     const analysis = await load();

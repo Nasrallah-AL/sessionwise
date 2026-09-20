@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { estimateCostUsd } from "./pricing.js";
 import type { SessionEvent } from "./types.js";
 
 interface ClaudeUsage {
@@ -137,6 +138,7 @@ export function parseClaudeCodeTranscript(source: string): SessionEvent[] {
     });
     const toolCalls = [...message.toolUses.values()];
     const toolNames = toolCalls.map((tool) => tool.name);
+    const outputTokens = message.usage.output_tokens ?? 0;
     return {
       id: message.id,
       sessionId: message.sessionId,
@@ -145,9 +147,18 @@ export function parseClaudeCodeTranscript(source: string): SessionEvent[] {
       model: message.model,
       route: message.cwd,
       inputTokens: input,
-      outputTokens: message.usage.output_tokens ?? 0,
+      outputTokens,
       cachedInputTokens: cacheRead,
       reasoningTokens: message.usage.output_tokens_details?.thinking_tokens ?? 0,
+      // Claude Code transcripts don't report billed cost, so this is a coarse
+      // tier-based estimate (see pricing.ts) - good enough to rank sessions
+      // and gate cost-concentration, not to reconcile against an invoice.
+      costUsd: estimateCostUsd(message.model, {
+        inputTokens: message.usage.input_tokens ?? 0,
+        outputTokens,
+        cacheReadTokens: cacheRead,
+        cacheCreationTokens: cacheCreation,
+      }),
       toolName: toolNames[0],
       error: failed.length ? `Claude Code tool error:${[...new Set(failed)].sort().join(",")}` : undefined,
       metadata: {
@@ -159,6 +170,7 @@ export function parseClaudeCodeTranscript(source: string): SessionEvent[] {
         stopReason: message.stopReason,
         effort: message.effort,
         isSidechain: message.isSidechain,
+        costBasis: "estimated",
       },
     } satisfies SessionEvent;
   });

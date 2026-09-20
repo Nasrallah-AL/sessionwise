@@ -100,11 +100,29 @@ export interface Recommendation {
   evidence: Evidence[];
 }
 
+/**
+ * One rule's findings rolled up across every session in the analyzed window -
+ * how much it costs in total and which sessions to look at first, rather than
+ * one line per affected session.
+ */
+export interface AggregatedRecommendation {
+  kind: RecommendationKind;
+  title: string;
+  suggestion: string;
+  confidence: "low" | "medium" | "high";
+  risk: RecommendationRisk;
+  sessionCount: number;
+  totalEstimatedSavingsUsd: number;
+  /** Sessions with the largest estimated savings for this rule, largest first. */
+  topSessions: { sessionId: string; estimatedSavingsUsd: number; evidence: Evidence[] }[];
+}
+
 export interface Analysis {
   generatedAt: string;
   events: SessionEvent[];
   sessions: SessionSummary[];
   recommendations: Recommendation[];
+  aggregatedRecommendations: AggregatedRecommendation[];
   totals: Omit<SessionSummary, "id" | "startedAt" | "endedAt" | "models" | "routes" | "metrics">;
 }
 

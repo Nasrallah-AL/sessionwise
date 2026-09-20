@@ -7,6 +7,19 @@ breaking changes to flags or JSON output; they are called out below.
 
 ## [Unreleased]
 
+### Added
+
+- `Recommendation.estimatedSavingsUsd`: every recommendation now carries a dollar estimate (cache waste, wasted retries, repeated tool calls, reasoning overhead, or a model downgrade), computed from each event's cost.
+- `Analysis.aggregatedRecommendations`: recommendations rolled up one entry per rule kind across the whole analyzed window, with total estimated savings, how many sessions are affected, and the top 5 sessions to fix first.
+- `sessionwise overview`: the aggregated view above as a command — total recoverable spend, ranked by dollar impact, instead of one line per session.
+- The Claude Code adapter now estimates `costUsd` per event from a coarse per-tier rate card (`src/pricing.ts`), since Claude Code transcripts don't report billed cost. Marked `metadata.costBasis: "estimated"`.
+
+### Changed
+
+- `sessionwise inspect <id>` is now a full session detail view by default: model-fit, cache, context, health, relevance judgments (if sampled for that session), and that session's recommendations with their dollar estimates. `--json` still returns the raw session, events, recommendations, and session-scoped relevance.
+- Lowered several recommendation thresholds so they fire on real, moderately-inefficient sessions instead of only pathological ones: `error-loop`/`repeated-tool-call` now need 2 repeats (was 3), `cache-opportunity` fires under 30% cache ratio (was 20%), `context-growth` at 2x growth (was 3x), `reasoning-overhead` at 3k reasoning tokens and 1.5x output (was 5k/2x), `model-fit` at a 20% oversized-call share (was 30%), `cost-concentration` at a 40% spend share (was 50%).
+- Added a percentile-relative gate alongside the absolute thresholds above: `cache-opportunity`, `context-growth`, `reasoning-overhead`, and `model-fit` can now also fire when a session is in the worst quartile of its own analyzed window (needs 5+ sessions), even if it doesn't cross the absolute threshold.
+
 ## [0.1.4] - 2026-09-19
 
 ### Added
