@@ -7,6 +7,8 @@ breaking changes to flags or JSON output; they are called out below.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-20
+
 ### Added
 
 - `Recommendation.estimatedSavingsUsd`: every recommendation now carries a dollar estimate (cache waste, wasted retries, repeated tool calls, reasoning overhead, or a model downgrade), computed from each event's cost.
